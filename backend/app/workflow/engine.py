@@ -7,10 +7,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.callbacks import callback_url, create_callback_wait
 from app.config import get_settings
 from app.database import SessionLocal
 from app.enums import NODE_TERMINAL_STATUSES, NodeRunStatus, RunStatus
-from app.models import FlowEvent, FlowRun, NodeRun, NodeRunAttempt, utc_now
+from app.models import CallbackWait, FlowEvent, FlowRun, NodeRun, NodeRunAttempt, utc_now
 from app.nodes import get_node_execution_kind, get_node_handler
 from app.nodes.base import NodeContext, PollPending
 from app.security.redaction import redact_sensitive
@@ -87,10 +88,23 @@ def advance_run(db: Session, run_id: str) -> None:
         .where(FlowRun.id == run_id)
         .options(selectinload(FlowRun.node_runs), selectinload(FlowRun.flow_version))
     )
-    if run is None or run.status not in {RunStatus.PENDING, RunStatus.RUNNING, RunStatus.WAITING}:
+    if run is None or run.status not in {
+        RunStatus.PENDING,
+        RunStatus.RUNNING,
+        RunStatus.WAITING,
+        RunStatus.WAITING_CALLBACK,
+    }:
         return
 
     if run.cancel_requested:
+        callbacks = db.scalars(
+            select(CallbackWait).where(
+                CallbackWait.flow_run_id == run.id,
+                CallbackWait.status == "WAITING",
+            )
+        ).all()
+        for callback in callbacks:
+            callback.status = "CANCELLED"
         for node_run in run.node_runs:
             if node_run.status not in NODE_TERMINAL_STATUSES:
                 node_run.status = NodeRunStatus.CANCELLED
@@ -115,6 +129,7 @@ def advance_run(db: Session, run_id: str) -> None:
                 NodeRunStatus.READY,
                 NodeRunStatus.RETRY_WAIT,
                 NodeRunStatus.POLL_WAIT,
+                NodeRunStatus.WAITING_CALLBACK,
             }:
                 node_run.status = NodeRunStatus.CANCELLED
                 node_run.finished_at = utc_now()
@@ -235,6 +250,51 @@ def recover_and_promote(db: Session) -> None:
             node_run.flow_run_id,
             "NODE_LEASE_EXPIRED",
             {"status": node_run.status},
+            node_run.node_id,
+        )
+
+    expired_callbacks = db.scalars(
+        select(CallbackWait)
+        .where(
+            CallbackWait.status == "WAITING",
+            CallbackWait.expires_at <= now,
+        )
+        .options(
+            selectinload(CallbackWait.node_run).selectinload(NodeRun.flow_run)
+        )
+    ).all()
+    for callback in expired_callbacks:
+        callback.status = "EXPIRED"
+        node_run = callback.node_run
+        if node_run.status != NodeRunStatus.WAITING_CALLBACK:
+            continue
+        node_run.status = NodeRunStatus.FAILED
+        node_run.error_message = "Callback wait timed out"
+        node_run.finished_at = now
+        run = node_run.flow_run
+        run.status = RunStatus.RUNNING
+        attempt = db.scalar(
+            select(NodeRunAttempt).where(
+                NodeRunAttempt.node_run_id == node_run.id,
+                NodeRunAttempt.attempt_number == callback.attempt_number,
+            )
+        )
+        if attempt is not None:
+            attempt.status = NodeRunStatus.FAILED
+            attempt.error_message = node_run.error_message
+            attempt.finished_at = now
+        emit_event(
+            db,
+            run.id,
+            "CALLBACK_EXPIRED",
+            {"callbackId": callback.id, "expiredAt": now.isoformat()},
+            node_run.node_id,
+        )
+        emit_event(
+            db,
+            run.id,
+            "NODE_FAILED",
+            {"status": NodeRunStatus.FAILED, "error": node_run.error_message},
             node_run.node_id,
         )
 
@@ -369,6 +429,51 @@ def execute_node(node_run_id: str) -> None:
                 emit_event(db, run.id, "RUN_WAITING", {"status": RunStatus.WAITING})
                 db.commit()
                 return
+            if execution_kind == "callback_wait":
+                callback = create_callback_wait(db, run, node_run, resolved_config)
+                node_run.output_data = {
+                    "_callback": {
+                        "id": callback.id,
+                        "status": callback.status,
+                        "url": callback_url(callback),
+                        "authMode": callback.auth_mode,
+                        "credentialAlias": callback.credential_alias,
+                        "expiresAt": callback.expires_at.isoformat(),
+                    }
+                }
+                node_run.status = NodeRunStatus.WAITING_CALLBACK
+                node_run.available_at = callback.expires_at
+                run.status = RunStatus.WAITING_CALLBACK
+                node_run.lease_owner = None
+                node_run.lease_expires_at = None
+                attempt = next(
+                    item
+                    for item in node_run.attempts_log
+                    if item.attempt_number == node_run.attempts
+                )
+                attempt.status = NodeRunStatus.WAITING_CALLBACK
+                attempt.finished_at = utc_now()
+                emit_event(
+                    db,
+                    run.id,
+                    "CALLBACK_WAITING",
+                    {
+                        "callbackId": callback.id,
+                        "status": NodeRunStatus.WAITING_CALLBACK,
+                        "authMode": callback.auth_mode,
+                        "credentialAlias": callback.credential_alias,
+                        "expiresAt": callback.expires_at.isoformat(),
+                    },
+                    node_run.node_id,
+                )
+                emit_event(
+                    db,
+                    run.id,
+                    "RUN_WAITING_CALLBACK",
+                    {"status": RunStatus.WAITING_CALLBACK},
+                )
+                db.commit()
+                return
             handler = get_node_handler(node_run.node_type, node_run.node_version)
             output = handler.execute(inputs, resolved_config, context)
             if isinstance(output, PollPending):
@@ -444,7 +549,13 @@ def worker_tick(worker_name: str) -> bool:
         recover_and_promote(db)
         active_run_ids = db.scalars(
             select(FlowRun.id).where(
-                FlowRun.status.in_([RunStatus.RUNNING, RunStatus.WAITING])
+                FlowRun.status.in_(
+                    [
+                        RunStatus.RUNNING,
+                        RunStatus.WAITING,
+                        RunStatus.WAITING_CALLBACK,
+                    ]
+                )
             )
         ).all()
         for run_id in active_run_ids:

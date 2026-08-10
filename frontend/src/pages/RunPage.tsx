@@ -18,7 +18,9 @@ import type { NodeRun, NodeTypeDefinition, RunDetail, WorkflowNode as WorkflowNo
 const nodeTypes = { workflow: WorkflowNode }
 const edgeTypes = { runtime: RuntimeEdge }
 const terminalStatuses = new Set(['SUCCESS', 'FAILED', 'CANCELLED'])
-const currentNodeStatuses = new Set(['READY', 'RUNNING', 'RETRY_WAIT', 'POLL_WAIT', 'WAITING'])
+const currentNodeStatuses = new Set([
+  'READY', 'RUNNING', 'RETRY_WAIT', 'POLL_WAIT', 'WAITING', 'WAITING_CALLBACK',
+])
 
 function duration(node?: NodeRun): string {
   if (!node?.started_at) return '—'
@@ -98,7 +100,7 @@ export function RunPage() {
       runtimeState = 'skipped'
     } else if (targetRun?.status === 'FAILED') {
       runtimeState = 'failed'
-    } else if (targetRun?.status === 'WAITING') {
+    } else if (targetRun?.status === 'WAITING' || targetRun?.status === 'WAITING_CALLBACK') {
       runtimeState = 'waiting'
     } else if (targetRun?.status === 'POLL_WAIT') {
       runtimeState = 'polling'
@@ -129,6 +131,8 @@ export function RunPage() {
       const nodeRun = runMap.get(node.id)
       return nodeRun?.status === 'POLL_WAIT'
         ? `${node.data.label} · poll ${nodeRun.attempts}/${nodeRun.max_attempts}`
+        : nodeRun?.status === 'WAITING_CALLBACK'
+          ? `${node.data.label} · waiting for callback`
         : node.data.label
     }).join(', ')
     : run?.status === 'SUCCESS' ? 'Run completed'
@@ -260,6 +264,20 @@ export function RunPage() {
                 <label>Decision<select value={decision} onChange={(event) => setDecision(event.target.value)}><option value="APPROVED">Approved</option><option value="REJECTED">Rejected</option><option value="CONTINUE">Continue</option></select></label>
                 <label>Comment<textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Optional audit comment" /></label>
                 <button className="button primary full" onClick={() => void resume()}><CirclePlay size={16} /> Continue execution</button>
+              </div>}
+              {selectedRun.status === 'WAITING_CALLBACK' && selectedRun.callback && <div className="callback-wait-panel">
+                <div className="alert callback-waiting">
+                  Waiting for an external JSON callback. The worker has been released.
+                </div>
+                <label>Callback URL</label>
+                <pre>{selectedRun.callback.callback_url}</pre>
+                <dl>
+                  <div><dt>Authentication</dt><dd>{selectedRun.callback.auth_mode}</dd></div>
+                  <div><dt>Credential</dt><dd>{selectedRun.callback.credential_alias ?? 'Capability URL only'}</dd></div>
+                  <div><dt>Expires</dt><dd>{new Date(selectedRun.callback.expires_at).toLocaleString()}</dd></div>
+                </dl>
+                <label>Example request</label>
+                <pre>{`curl -X POST "${selectedRun.callback.callback_url}" \\\n  -H "Content-Type: application/json" \\\n  -H "Idempotency-Key: callback-001"${selectedRun.callback.auth_mode === 'BEARER' ? ' \\\n  -H "Authorization: Bearer <credential token>"' : selectedRun.callback.auth_mode === 'API_KEY_HEADER' ? ' \\\n  -H "<configured API key header>: <credential value>"' : selectedRun.callback.auth_mode === 'HMAC_SHA256' ? ' \\\n  -H "X-FlowForge-Signature: sha256=<HMAC of raw body>"' : ''} \\\n  -d '{"approved":true,"message":"Callback received"}'`}</pre>
               </div>}
               {selectedRun.status === 'POLL_WAIT' && <div className="alert polling">
                 Waiting for the next HTTP poll at {new Date(selectedRun.available_at).toLocaleString()}.

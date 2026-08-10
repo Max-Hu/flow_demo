@@ -32,6 +32,14 @@ class ResolvedCredential:
     headers: dict[str, str]
 
 
+@dataclass(frozen=True)
+class InboundCredential:
+    alias: str
+    credential_type: str
+    revision: int
+    secret: dict[str, Any]
+
+
 def normalize_origin(value: str) -> str:
     parsed = urlsplit(value)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -136,6 +144,36 @@ def current_revision(db: Session, credential: FlowCredential) -> FlowCredentialR
     if revision is None:
         raise ValueError(f"Credential '{credential.alias}' has no current secret revision")
     return revision
+
+
+def resolve_inbound_credential(
+    db: Session, flow_id: str, alias: str
+) -> InboundCredential:
+    credential = db.scalar(
+        select(FlowCredential).where(
+            FlowCredential.flow_id == flow_id,
+            FlowCredential.alias == alias,
+        )
+    )
+    if credential is None:
+        raise ValueError(f"Credential '{alias}' does not exist for this flow")
+    if not credential.enabled:
+        raise ValueError(f"Credential '{alias}' is disabled")
+    revision = current_revision(db, credential)
+    secret = decrypt_secret(
+        revision.key_id,
+        revision.nonce,
+        revision.ciphertext,
+        credential.flow_id,
+        credential.id,
+        revision.revision,
+    )
+    return InboundCredential(
+        alias=credential.alias,
+        credential_type=credential.credential_type,
+        revision=revision.revision,
+        secret=secret,
+    )
 
 
 def resolve_credential(

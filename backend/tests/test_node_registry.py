@@ -45,11 +45,12 @@ def manifest_document() -> dict:
 def test_builtin_registry_contains_all_nodes_and_stable_fingerprint() -> None:
     definitions = list_node_definitions()
 
-    assert get_registry_count() == 9
-    assert len(definitions) == 9
+    assert get_registry_count() == 10
+    assert len(definitions) == 10
     assert get_node_execution_kind("http_poll", "1.0") == "durable_poll"
     assert len(get_registry_fingerprint()) == 64
     assert get_node_execution_kind("manual_approval", "1.0") == "manual_wait"
+    assert get_node_execution_kind("http_callback", "1.0") == "callback_wait"
     assert all(item.available_for_new_flows for item in definitions)
 
 
@@ -111,7 +112,7 @@ def test_installed_entry_point_provider_is_loaded(monkeypatch: pytest.MonkeyPatc
 
     registry = build_registry(include_builtin=False, include_entry_points=True)
 
-    assert len(registry.entries) == 9
+    assert len(registry.entries) == 10
 
 
 def test_provider_can_keep_multiple_versions_of_one_node(

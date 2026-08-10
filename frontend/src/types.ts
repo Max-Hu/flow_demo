@@ -122,6 +122,16 @@ export interface NodeRun {
   available_at: string
   started_at?: string
   finished_at?: string
+  callback?: {
+    id: string
+    status: string
+    callback_url: string
+    auth_mode: 'CAPABILITY_URL' | 'BEARER' | 'API_KEY_HEADER' | 'HMAC_SHA256'
+    credential_alias?: string
+    expires_at: string
+    received_at?: string
+    created_at: string
+  }
 }
 
 export interface RunSummary {

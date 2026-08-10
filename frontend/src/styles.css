@@ -78,6 +78,7 @@ a { color: inherit; text-decoration: none; }
 .badge.skipped, .badge.cancelled { color: #64748b; background: #f1f5f9; }
 .badge.retry_wait { color: #b45309; background: #fef3c7; }
 .badge.poll_wait, .alert.polling { color: #92400e; background: #fef3c7; border-color: #fde68a; }
+.badge.waiting_callback, .alert.callback-waiting { color: #6d28d9; background: #f5f3ff; border-color: #ddd6fe; }
 .badge.waiting, .alert.waiting { color: #9d174d; background: #fce7f3; }
 .badge.paused { color: #b45309; background: #fef3c7; }
 .badge.archived { color: #475569; background: #e2e8f0; }
@@ -204,6 +205,8 @@ a { color: inherit; text-decoration: none; }
 .workflow-node.status-ready, .workflow-node.status-running, .workflow-node.status-retry_wait { border-color: #60a5fa; box-shadow: 0 0 0 4px #dbeafe, 0 12px 30px #2563eb25; animation: current-node-glow 1.5s ease-in-out infinite; }
 .workflow-node.status-waiting { border-color: #f9a8d4; box-shadow: 0 0 0 3px #fce7f3; }
 .workflow-node.status-poll_wait { border-color: #f59e0b; box-shadow: 0 0 0 4px #fef3c7, 0 12px 30px #d9770625; }
+.status-dot.waiting_callback { background: #7c3aed; box-shadow: 0 0 0 4px #ede9fe; animation: pulse 1.8s infinite; }
+.workflow-node.status-waiting_callback { border-color: #7c3aed; box-shadow: 0 0 0 4px #ede9fe, 0 12px 30px #7c3aed25; }
 .workflow-node.status-failed { border-color: #fca5a5; }
 .workflow-node.status-skipped { opacity: .55; }
 .react-flow__handle { width: 10px; height: 10px; background: white; border: 2px solid var(--node-color, #64748b); }
@@ -268,6 +271,10 @@ td small { color: #94a3b8; margin-top: 3px; }
 .run-status.success span { background: #10b981; }
 .run-status.failed span { background: #ef4444; }
 .run-status.waiting span { background: #db2777; animation: pulse 1.2s infinite; }
+.run-status.waiting_callback span { background: #7c3aed; animation: pulse 1.2s infinite; }
+.execution-progress-overlay.waiting_callback { border-color: #ddd6fe; }
+.execution-progress-overlay.waiting_callback .execution-progress-pulse { background: #7c3aed; box-shadow: 0 0 0 5px #ede9fe; }
+.execution-progress-overlay.waiting_callback strong { color: #6d28d9; }
 .run-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(600px, 1fr) 330px; }
 .floating-error { position: fixed; top: 145px; left: 50%; transform: translateX(-50%); z-index: 30; padding: 10px 15px; border-radius: 8px; color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; font-size: 12px; }
 .summary-grid { display: grid; gap: 10px; }
@@ -289,6 +296,8 @@ td small { color: #94a3b8; margin-top: 3px; }
 .manual-resume-form label { display: flex; flex-direction: column; gap: 5px; color: #64748b; font-size: 10px; font-weight: 700; }
 .manual-resume-form select, .manual-resume-form textarea { border: 1px solid #cbd5e1; border-radius: 7px; padding: 8px; background: white; }
 .manual-resume-form textarea { min-height: 72px; resize: vertical; }
+.callback-wait-panel { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.callback-wait-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .inspector-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
 .inspector-heading strong, .inspector-heading small { display: block; }
 .inspector-heading strong { font: 700 13px Inter, ui-sans-serif, system-ui, sans-serif; }

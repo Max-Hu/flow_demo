@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     credential_keys: dict[str, str] = Field(default_factory=dict)
     active_credential_key_id: str = ""
     demo_partner_token: str = "flowforge-local-demo-token"
+    callback_base_url: str = "http://localhost:8000"
 
 
 @lru_cache

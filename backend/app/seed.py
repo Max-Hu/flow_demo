@@ -13,6 +13,8 @@ VARIABLE_FLOW_NAME = "Run Variables Demo"
 POLL_FLOW_NAME = "HTTP Poll Demo"
 CREDENTIAL_FLOW_NAME = "Credential Authentication Demo"
 CREDENTIAL_ALIAS = "demo_partner_api"
+CALLBACK_FLOW_NAME = "HTTP Callback Demo"
+CALLBACK_CREDENTIAL_ALIAS = "callback_demo_auth"
 
 
 def poll_input_schema() -> dict:
@@ -63,6 +65,106 @@ def credential_demo_config_schema() -> dict:
         },
         "required": ["partnerBaseUrl"],
         "additionalProperties": False,
+    }
+
+
+def callback_demo_input_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "requestId": {
+                "type": "string",
+                "title": "Request ID",
+                "description": "Identifier carried into the callback result.",
+                "default": "CALLBACK-1001",
+                "minLength": 1,
+            }
+        },
+        "required": ["requestId"],
+        "additionalProperties": False,
+    }
+
+
+def callback_demo_flow_content() -> dict:
+    nodes = [
+        ("start", "Start callback run", "start", {}, 80, 220),
+        (
+            "wait-callback",
+            "Wait for partner callback",
+            "http_callback",
+            {
+                "timeoutSeconds": 3600,
+                "authMode": "BEARER",
+                "credentialRef": CALLBACK_CREDENTIAL_ALIAS,
+            },
+            380,
+            220,
+        ),
+        (
+            "callback-approved",
+            "Callback approved?",
+            "condition",
+            {"field": "approved", "operator": "equals", "value": True},
+            700,
+            220,
+        ),
+        (
+            "approved",
+            "Record callback approval",
+            "result",
+            {
+                "result": "CALLBACK_APPROVED",
+                "message": "Callback request {requestId} was approved",
+            },
+            1020,
+            100,
+        ),
+        (
+            "denied",
+            "Record callback denial",
+            "result",
+            {
+                "result": "CALLBACK_DENIED",
+                "message": "Callback request {requestId} was denied",
+            },
+            1020,
+            340,
+        ),
+        ("end", "Complete callback run", "end", {}, 1340, 220),
+    ]
+    return {
+        "schemaVersion": 1,
+        "nodes": [
+            {
+                "id": node_id,
+                "type": "workflow",
+                "position": {"x": x, "y": y},
+                "data": {
+                    "label": label,
+                    "nodeType": node_type,
+                    "nodeVersion": "1.0",
+                    "config": config,
+                },
+            }
+            for node_id, label, node_type, config, x, y in nodes
+        ],
+        "edges": [
+            {
+                "id": edge_id,
+                "source": source,
+                "target": target,
+                "sourceHandle": source_handle,
+                "targetHandle": "input",
+            }
+            for edge_id, source, target, source_handle in [
+                ("e-start-wait", "start", "wait-callback", "output"),
+                ("e-wait-check", "wait-callback", "callback-approved", "output"),
+                ("e-check-approved", "callback-approved", "approved", "true"),
+                ("e-check-denied", "callback-approved", "denied", "false"),
+                ("e-approved-end", "approved", "end", "output"),
+                ("e-denied-end", "denied", "end", "output"),
+            ]
+        ],
     }
 
 
@@ -374,6 +476,68 @@ def seed_credential_demo_flow(db: Session) -> None:
         )
 
 
+def seed_callback_demo_flow(db: Session) -> None:
+    flow = db.scalar(
+        select(FlowDefinition).where(FlowDefinition.name == CALLBACK_FLOW_NAME)
+    )
+    if flow is None:
+        content = callback_demo_flow_content()
+        input_schema = callback_demo_input_schema()
+        flow = FlowDefinition(
+            name=CALLBACK_FLOW_NAME,
+            description=(
+                "Waits without holding a worker until an authenticated third party "
+                "posts a JSON callback."
+            ),
+            status=FlowStatus.ACTIVE,
+            draft_content=content,
+            input_schema=input_schema,
+            current_version=1,
+        )
+        db.add(flow)
+        db.flush()
+        db.add(
+            FlowVersion(
+                flow_id=flow.id,
+                version_number=1,
+                content=content,
+                input_schema=input_schema,
+            )
+        )
+
+    credential = db.scalar(
+        select(FlowCredential).where(
+            FlowCredential.flow_id == flow.id,
+            FlowCredential.alias == CALLBACK_CREDENTIAL_ALIAS,
+        )
+    )
+    if credential is None:
+        credential = FlowCredential(
+            flow_id=flow.id,
+            alias=CALLBACK_CREDENTIAL_ALIAS,
+            credential_type="BEARER",
+            allowed_origins=["http://localhost:8000"],
+            enabled=True,
+            current_revision=0,
+        )
+        db.add(credential)
+        db.flush()
+        create_revision(db, credential, {"token": get_settings().demo_partner_token})
+        add_audit(
+            db,
+            "CREDENTIAL_CREATED",
+            actor="system",
+            flow_id=flow.id,
+            credential_id=credential.id,
+            payload={
+                "alias": credential.alias,
+                "type": credential.credential_type,
+                "revision": credential.current_revision,
+                "source": "callback-demo-seed",
+            },
+        )
+
+
 def seed_demo_flow(db: Session) -> None:
     existing = db.scalar(select(FlowDefinition).where(FlowDefinition.name == DEMO_FLOW_NAME))
     if existing is None:
@@ -467,6 +631,7 @@ def seed_demo_flow(db: Session) -> None:
             )
         )
     seed_credential_demo_flow(db)
+    seed_callback_demo_flow(db)
     db.commit()
 
 

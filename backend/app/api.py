@@ -11,6 +11,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.callbacks import callback_url
 from app.database import SessionLocal, get_db
 from app.enums import FlowStatus, NodeRunStatus, RunStatus, RunTriggerType
 from app.flow_config import config_validation_errors, deep_merge
@@ -21,12 +22,14 @@ from app.models import (
     FlowRun,
     FlowSchedule,
     FlowVersion,
+    NodeRun,
     utc_now,
 )
 from app.nodes import list_node_definitions
 from app.run_service import create_flow_run
 from app.scheduling import validate_schedule
 from app.schemas import (
+    CallbackWaitResponse,
     CredentialCreate,
     CredentialResponse,
     CredentialRotate,
@@ -181,8 +184,29 @@ def build_run_detail(run: FlowRun) -> RunDetail:
         started_at=run.started_at,
         finished_at=run.finished_at,
         flow_content=run.flow_version.content,
-        node_runs=[NodeRunResponse.model_validate(item) for item in run.node_runs],
+        node_runs=[build_node_run_response(item) for item in run.node_runs],
         variables=[RunVariableResponse.model_validate(item) for item in run.variables],
+    )
+
+
+def build_node_run_response(item: NodeRun) -> NodeRunResponse:
+    response = NodeRunResponse.model_validate(item)
+    if not item.callback_waits:
+        return response
+    callback = max(item.callback_waits, key=lambda value: value.attempt_number)
+    return response.model_copy(
+        update={
+            "callback": CallbackWaitResponse(
+                id=callback.id,
+                status=callback.status,
+                callback_url=callback_url(callback),
+                auth_mode=callback.auth_mode,
+                credential_alias=callback.credential_alias,
+                expires_at=callback.expires_at,
+                received_at=callback.received_at,
+                created_at=callback.created_at,
+            )
+        }
     )
 
 
@@ -211,7 +235,7 @@ def load_run(db: Session, run_id: str) -> FlowRun:
         .options(
             selectinload(FlowRun.flow),
             selectinload(FlowRun.flow_version),
-            selectinload(FlowRun.node_runs),
+            selectinload(FlowRun.node_runs).selectinload(NodeRun.callback_waits),
             selectinload(FlowRun.variables),
         )
     )
@@ -469,7 +493,12 @@ def rerun_run(run_id: str, db: DbSession) -> RunDetail:
 @router.post("/runs/{run_id}/cancel", response_model=RunDetail)
 def cancel_run(run_id: str, db: DbSession) -> RunDetail:
     run = load_run(db, run_id)
-    if run.status not in {RunStatus.PENDING, RunStatus.RUNNING, RunStatus.WAITING}:
+    if run.status not in {
+        RunStatus.PENDING,
+        RunStatus.RUNNING,
+        RunStatus.WAITING,
+        RunStatus.WAITING_CALLBACK,
+    }:
         raise HTTPException(status_code=409, detail="Only active runs can be cancelled")
     run.cancel_requested = True
     emit_event(db, run.id, "RUN_CANCEL_REQUESTED", {"status": run.status})

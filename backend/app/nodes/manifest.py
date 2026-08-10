@@ -23,7 +23,7 @@ class ManifestMetadata(StrictManifestModel):
 
 
 class ExecutionManifest(StrictManifestModel):
-    kind: Literal["python", "manual_wait", "durable_poll"]
+    kind: Literal["python", "manual_wait", "durable_poll", "callback_wait"]
     handler: str | None = None
 
     @model_validator(mode="after")

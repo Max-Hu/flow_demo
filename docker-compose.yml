@@ -36,6 +36,7 @@ services:
       WORKFLOW_CREDENTIAL_KEYS: ${WORKFLOW_CREDENTIAL_KEYS:?Set WORKFLOW_CREDENTIAL_KEYS in .env}
       WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID: ${WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID:?Set WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID in .env}
       WORKFLOW_DEMO_PARTNER_TOKEN: ${PARTNER_API_DEMO_TOKEN:-flowforge-local-demo-token}
+      WORKFLOW_CALLBACK_BASE_URL: ${WORKFLOW_CALLBACK_BASE_URL:-http://localhost:8000}
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     ports:
       - "8000:8000"
@@ -56,6 +57,7 @@ services:
       WORKFLOW_WORKER_NAME: local-worker
       WORKFLOW_CREDENTIAL_KEYS: ${WORKFLOW_CREDENTIAL_KEYS:?Set WORKFLOW_CREDENTIAL_KEYS in .env}
       WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID: ${WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID:?Set WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID in .env}
+      WORKFLOW_CALLBACK_BASE_URL: ${WORKFLOW_CALLBACK_BASE_URL:-http://localhost:8000}
     command: ["python", "worker.py"]
     depends_on:
       api:

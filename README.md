@@ -71,6 +71,26 @@ branch. The Run timeline records `CREDENTIAL_USED` with only alias, revision, no
 The URL is built from `{{ flowConfig.partnerBaseUrl }}`, so this one demo covers both Flow
 Configuration and Credentials.
 
+To demonstrate an inbound asynchronous integration, run **HTTP Callback Demo**. When the purple
+HTTP Callback node reaches `WAITING_CALLBACK`, select it on the Runs page and copy its unique
+Callback URL. The worker lease has already been released. Send the callback with the seeded local
+Bearer credential:
+
+```powershell
+$callbackUrl = "<URL shown on the waiting node>"
+$headers = @{
+  Authorization = "Bearer flowforge-local-demo-token"
+  "Idempotency-Key" = "partner-event-001"
+}
+Invoke-RestMethod -Method Post -Uri $callbackUrl -Headers $headers `
+  -ContentType "application/json" -Body '{"approved":true,"message":"Partner completed"}'
+```
+
+The run resumes without manual intervention and routes to `CALLBACK_APPROVED`. Send
+`{"approved":false}` to exercise the denied branch. Repeating the same Idempotency-Key is safe;
+a different key after consumption receives HTTP 409. Callback nodes also support API key header
+and `X-FlowForge-Signature: sha256=<HMAC>` authentication using a selected Flow Credential.
+
 Use **Schedules** in the designer to create a five-field cron trigger pinned to an immutable published version. Each schedule has its own timezone, validated input, enabled state, and next-run timestamp. The toolbar status selector controls whether a flow is `ACTIVE`, `PAUSED`, or `ARCHIVED`; paused and archived flows reject manual, scheduled, and rerun triggers while already-started runs continue.
 
 The designer supports explicit node and connection deletion from the Properties panel, as well as the Delete and Backspace keys. The Runs page can manually start any published version from its generated input form. Completed runs can be rerun with the same pinned version and input from either the Runs table or the run detail page.
@@ -305,6 +325,8 @@ Included:
 - Single-administrator session authentication with HttpOnly cookies, CSRF protection, and login throttling.
 - Versioned Flow Configuration plus encrypted, revisioned, flow-scoped HTTP Credentials.
 - Adminer database inspection, a Mermaid ERD/table dictionary, and an authenticated Credential demo Flow.
+- Durable HTTP Callback waits with unique URLs, Bearer/API-key/HMAC authentication, idempotency,
+  cancellation, timeout handling, live UI guidance, and a seeded callback demo Flow.
 
 Not included:
 

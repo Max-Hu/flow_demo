@@ -7,6 +7,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import JSONResponse
 
 from app.api import router
+from app.callback_api import router as callback_router
 from app.config import get_settings
 from app.database import SessionLocal
 from app.nodes import get_registry_count, get_registry_fingerprint
@@ -51,6 +52,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router, prefix="/api/auth")
+app.include_router(callback_router, prefix="/api/callbacks", tags=["callbacks"])
 app.include_router(router, prefix="/api", dependencies=[Depends(require_admin)])
 
 
