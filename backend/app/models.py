@@ -134,6 +134,9 @@ class FlowRun(Base):
     variables: Mapped[list[FlowRunVariable]] = relationship(
         back_populates="flow_run", cascade="all, delete-orphan", order_by="FlowRunVariable.name"
     )
+    callback_waits: Mapped[list[CallbackWait]] = relationship(
+        back_populates="flow_run", cascade="all, delete-orphan"
+    )
 
 
 class FlowSchedule(Base):
@@ -305,6 +308,48 @@ class NodeRun(Base):
     attempts_log: Mapped[list[NodeRunAttempt]] = relationship(
         back_populates="node_run", cascade="all, delete-orphan"
     )
+    callback_waits: Mapped[list[CallbackWait]] = relationship(
+        back_populates="node_run", cascade="all, delete-orphan"
+    )
+
+
+class CallbackWait(Base):
+    __tablename__ = "callback_wait"
+    __table_args__ = (
+        UniqueConstraint("node_run_id", "attempt_number", name="uq_callback_wait_attempt"),
+        Index("ix_callback_wait_due", "status", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    flow_run_id: Mapped[str] = mapped_column(
+        ForeignKey("flow_run.id", ondelete="CASCADE"), nullable=False
+    )
+    node_run_id: Mapped[str] = mapped_column(
+        ForeignKey("node_run.id", ondelete="CASCADE"), nullable=False
+    )
+    node_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="WAITING", nullable=False)
+    auth_mode: Mapped[str] = mapped_column(String(30), nullable=False)
+    credential_alias: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    request_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    flow_run: Mapped[FlowRun] = relationship(back_populates="callback_waits")
+    node_run: Mapped[NodeRun] = relationship(back_populates="callback_waits")
 
 
 class NodeRunAttempt(Base):

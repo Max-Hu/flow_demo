@@ -51,8 +51,14 @@ def test_due_poll_wait_is_promoted_without_blocking_worker() -> None:
     waiting_result.all.return_value = [poll_run]
     expired_result = Mock()
     expired_result.all.return_value = []
+    expired_callback_result = Mock()
+    expired_callback_result.all.return_value = []
     db = Mock()
-    db.scalars.side_effect = [waiting_result, expired_result]
+    db.scalars.side_effect = [
+        waiting_result,
+        expired_result,
+        expired_callback_result,
+    ]
 
     recover_and_promote(db)
 

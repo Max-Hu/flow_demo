@@ -18,8 +18,10 @@ erDiagram
     FLOW_RUN ||--o{ NODE_RUN : contains
     FLOW_RUN ||--o{ FLOW_EVENT : records
     FLOW_RUN ||--o{ FLOW_RUN_VARIABLE : stores
+    FLOW_RUN ||--o{ CALLBACK_WAIT : waits
     FLOW_RUN ||--o{ FLOW_RUN : reruns
     NODE_RUN ||--o{ NODE_RUN_ATTEMPT : attempts
+    NODE_RUN ||--o{ CALLBACK_WAIT : callbacks
     FLOW_CREDENTIAL ||--o{ FLOW_CREDENTIAL_REVISION : rotates
 
     FLOW_DEFINITION {
@@ -102,6 +104,23 @@ erDiagram
         timestamptz finished_at
     }
 
+    CALLBACK_WAIT {
+        string id PK
+        string flow_run_id FK
+        string node_run_id FK
+        string node_id
+        int attempt_number UK
+        string status
+        string auth_mode
+        string credential_alias
+        timestamptz expires_at
+        timestamptz received_at
+        string idempotency_key
+        json payload
+        json request_metadata
+        timestamptz created_at
+    }
+
     FLOW_EVENT {
         int id PK
         string flow_run_id FK
@@ -177,6 +196,7 @@ independent of workflow execution data.
 | `flow_schedule` | Cron trigger pinned to a published version | Deleted with its Flow |
 | `node_run` | Durable state and lease for one node in one run | Deleted with its run |
 | `node_run_attempt` | Attempt-level status, timing and error history | Deleted with its node run |
+| `callback_wait` | Callback URL attempt, inbound authentication, expiry, idempotency and sanitized payload | Deleted with its run; a completed URL cannot be consumed twice |
 | `flow_event` | Ordered SSE/audit timeline including `CREDENTIAL_USED` | Deleted with its run |
 | `flow_run_variable` | Run-scoped typed JSON variables and writer revision | Deleted with its run |
 | `flow_credential` | Flow-local alias, auth type, exact origin allowlist and active revision | Secret data is never stored here |
@@ -216,6 +236,13 @@ FROM flow_run AS r
 JOIN flow_definition AS f ON f.id = r.flow_id
 JOIN flow_version AS v ON v.id = r.flow_version_id
 ORDER BY r.requested_at DESC
+LIMIT 50;
+
+-- Active or recently received external callbacks
+SELECT id, flow_run_id, node_id, status, auth_mode,
+       credential_alias, expires_at, received_at
+FROM callback_wait
+ORDER BY created_at DESC
 LIMIT 50;
 
 -- Credential metadata only (ciphertext is intentionally excluded)

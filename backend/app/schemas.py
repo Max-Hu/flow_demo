@@ -206,6 +206,17 @@ class NodeResume(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
+class CallbackWaitResponse(BaseModel):
+    id: str
+    status: str
+    callback_url: str
+    auth_mode: str
+    credential_alias: str | None
+    expires_at: datetime
+    received_at: datetime | None
+    created_at: datetime
+
+
 class NodeRunResponse(BaseModel):
     id: str
     node_id: str
@@ -220,6 +231,7 @@ class NodeRunResponse(BaseModel):
     available_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    callback: CallbackWaitResponse | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

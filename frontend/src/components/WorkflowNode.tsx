@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { Activity, Braces, CheckCircle2, CircleStop, Clock3, Database, GitBranch, Globe2, Hand, RefreshCw } from 'lucide-react'
+import { Activity, Braces, CheckCircle2, CircleStop, Clock3, Database, GitBranch, Globe2, Hand, RefreshCw, Webhook } from 'lucide-react'
 
 import type { WorkflowNode } from '../types'
 
@@ -7,6 +7,7 @@ const icons: Record<string, typeof Activity> = {
   start: Activity,
   http_request: Globe2,
   http_poll: RefreshCw,
+  http_callback: Webhook,
   condition: GitBranch,
   result: Braces,
   set_variable: Database,

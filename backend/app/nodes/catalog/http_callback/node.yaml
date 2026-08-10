@@ -1,0 +1,56 @@
+apiVersion: flowforge/v1
+kind: NodeType
+
+metadata:
+  type: http_callback
+  version: "1.0"
+  name: HTTP Callback
+  description: Pauses a run until an authenticated third party posts a JSON callback.
+  lifecycle: active
+
+spec:
+  category: Integration
+  color: "#7c3aed"
+
+  execution:
+    kind: callback_wait
+
+  inputs:
+    - name: input
+      label: Input
+      dataType: object
+
+  outputs:
+    - name: output
+      label: Callback payload
+      dataType: object
+
+  configSchema:
+    type: object
+    properties:
+      timeoutSeconds:
+        type: integer
+        title: Callback timeout (seconds)
+        minimum: 10
+        maximum: 604800
+      authMode:
+        type: string
+        title: Callback authentication
+        enum:
+          - CAPABILITY_URL
+          - BEARER
+          - API_KEY_HEADER
+          - HMAC_SHA256
+      credentialRef:
+        type: string
+        title: Authentication credential
+        format: flow-credential
+    required:
+      - timeoutSeconds
+      - authMode
+    additionalProperties: false
+
+  defaultConfig:
+    timeoutSeconds: 3600
+    authMode: CAPABILITY_URL
+    credentialRef: ""
