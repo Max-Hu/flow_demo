@@ -1,0 +1,34 @@
+apiVersion: flowforge/v1
+kind: NodeType
+metadata:
+  type: delay
+  version: "1.0"
+  name: Delay
+  description: Waits for a short period. Limited to ten seconds in the MVP.
+  lifecycle: active
+spec:
+  category: Control
+  color: "#475569"
+  execution:
+    kind: python
+    handler: ".handler:DelayNode"
+  inputs:
+    - name: input
+      label: Input
+      dataType: object
+  outputs:
+    - name: output
+      label: Output
+      dataType: object
+  configSchema:
+    type: object
+    properties:
+      seconds:
+        type: number
+        title: Seconds
+        minimum: 0
+        maximum: 10
+    required: [seconds]
+    additionalProperties: false
+  defaultConfig:
+    seconds: 1

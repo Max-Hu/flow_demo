@@ -1,0 +1,54 @@
+apiVersion: flowforge/v1
+kind: NodeType
+metadata:
+  type: http_request
+  version: "1.0"
+  name: HTTP Request
+  description: Calls a JSON HTTP endpoint. Input fields can be used in the URL template.
+  lifecycle: active
+spec:
+  category: Integration
+  color: "#7c3aed"
+  execution:
+    kind: python
+    handler: ".handler:HttpRequestNode"
+  inputs:
+    - name: input
+      label: Input
+      dataType: object
+  outputs:
+    - name: output
+      label: Response
+      dataType: object
+  configSchema:
+    type: object
+    properties:
+      method:
+        type: string
+        title: Method
+        enum: [GET, POST]
+      url:
+        type: string
+        title: URL
+      credentialRef:
+        type: string
+        title: Authentication
+        format: flow-credential
+      timeoutSeconds:
+        type: number
+        title: Timeout (seconds)
+        minimum: 1
+        maximum: 30
+      maxAttempts:
+        type: integer
+        title: Maximum attempts
+        minimum: 1
+        maximum: 5
+    required: [method, url]
+    additionalProperties: false
+  defaultConfig:
+    method: GET
+    url: "http://partner-api:8001/customers/{customerId}/score"
+    timeoutSeconds: 10
+    credentialRef: ""
+    maxAttempts: 3

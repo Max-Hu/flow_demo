@@ -1,0 +1,40 @@
+apiVersion: flowforge/v1
+kind: NodeType
+metadata:
+  type: set_variable
+  version: "1.0"
+  name: Set Variable
+  description: Stores a run-scoped value for any later node to reference.
+  lifecycle: active
+spec:
+  category: Data
+  color: "#0f766e"
+  execution:
+    kind: python
+    handler: ".handler:SetVariableNode"
+  inputs:
+    - name: input
+      label: Input
+      dataType: object
+  outputs:
+    - name: output
+      label: Output
+      dataType: object
+  configSchema:
+    type: object
+    properties:
+      name:
+        type: string
+        title: Variable name
+      value:
+        title: Value or template
+      writeMode:
+        type: string
+        title: Write mode
+        enum: [REPLACE, MERGE, APPEND, INCREMENT]
+    required: [name, value, writeMode]
+    additionalProperties: false
+  defaultConfig:
+    name: customerScore
+    value: "{{ input.score }}"
+    writeMode: REPLACE

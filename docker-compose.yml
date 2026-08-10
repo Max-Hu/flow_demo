@@ -1,0 +1,102 @@
+services:
+  database:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-workflow}
+      POSTGRES_USER: ${POSTGRES_USER:-workflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-workflow}
+    ports:
+      - "5432:5432"
+    volumes:
+      - workflow-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-workflow} -d ${POSTGRES_DB:-workflow}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  adminer:
+    image: adminer:5.4.2-standalone
+    environment:
+      ADMINER_DEFAULT_SERVER: database
+    ports:
+      - "8080:8080"
+    depends_on:
+      database:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      WORKFLOW_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-workflow}:${POSTGRES_PASSWORD:-workflow}@database:5432/${POSTGRES_DB:-workflow}
+      WORKFLOW_CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173"]'
+      WORKFLOW_ADMIN_USERNAME: ${WORKFLOW_ADMIN_USERNAME:-admin}
+      WORKFLOW_ADMIN_PASSWORD_HASH: ${WORKFLOW_ADMIN_PASSWORD_HASH:?Set WORKFLOW_ADMIN_PASSWORD_HASH in .env}
+      WORKFLOW_CREDENTIAL_KEYS: ${WORKFLOW_CREDENTIAL_KEYS:?Set WORKFLOW_CREDENTIAL_KEYS in .env}
+      WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID: ${WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID:?Set WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID in .env}
+      WORKFLOW_DEMO_PARTNER_TOKEN: ${PARTNER_API_DEMO_TOKEN:-flowforge-local-demo-token}
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  worker:
+    build:
+      context: ./backend
+    environment:
+      WORKFLOW_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-workflow}:${POSTGRES_PASSWORD:-workflow}@database:5432/${POSTGRES_DB:-workflow}
+      WORKFLOW_WORKER_NAME: local-worker
+      WORKFLOW_CREDENTIAL_KEYS: ${WORKFLOW_CREDENTIAL_KEYS:?Set WORKFLOW_CREDENTIAL_KEYS in .env}
+      WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID: ${WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID:?Set WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID in .env}
+    command: ["python", "worker.py"]
+    depends_on:
+      api:
+        condition: service_healthy
+      partner-api:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      context: ./backend
+    environment:
+      WORKFLOW_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-workflow}:${POSTGRES_PASSWORD:-workflow}@database:5432/${POSTGRES_DB:-workflow}
+    command: ["python", "scheduler.py"]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  partner-api:
+    build:
+      context: ./backend
+    command: ["uvicorn", "partner_api:app", "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      PARTNER_API_DEMO_TOKEN: ${PARTNER_API_DEMO_TOKEN:-flowforge-local-demo-token}
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api}
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  workflow-db:

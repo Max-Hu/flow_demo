@@ -1,0 +1,31 @@
+apiVersion: flowforge/v1
+kind: NodeType
+metadata:
+  type: manual_approval
+  version: "1.0"
+  name: Manual Approval
+  description: Pauses the run until an operator supplies a decision and continues it.
+  lifecycle: active
+spec:
+  category: Control
+  color: "#db2777"
+  execution:
+    kind: manual_wait
+  inputs:
+    - name: input
+      label: Input
+      dataType: object
+  outputs:
+    - name: output
+      label: Output
+      dataType: object
+  configSchema:
+    type: object
+    properties:
+      prompt:
+        type: string
+        title: Operator prompt
+    required: [prompt]
+    additionalProperties: false
+  defaultConfig:
+    prompt: Review the data and continue this workflow.

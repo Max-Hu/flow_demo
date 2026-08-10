@@ -1,0 +1,36 @@
+apiVersion: flowforge/v1
+kind: NodeType
+metadata:
+  type: result
+  version: "1.0"
+  name: Set Result
+  description: Adds a result and a formatted message to the workflow data.
+  lifecycle: active
+spec:
+  category: Data
+  color: "#0891b2"
+  execution:
+    kind: python
+    handler: ".handler:ResultNode"
+  inputs:
+    - name: input
+      label: Input
+      dataType: object
+  outputs:
+    - name: output
+      label: Output
+      dataType: object
+  configSchema:
+    type: object
+    properties:
+      result:
+        type: string
+        title: Result
+      message:
+        type: string
+        title: Message template
+    required: [result, message]
+    additionalProperties: false
+  defaultConfig:
+    result: APPROVED
+    message: "Customer approved with score {score}"

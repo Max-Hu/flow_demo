@@ -1,0 +1,24 @@
+apiVersion: flowforge/v1
+kind: NodeType
+metadata:
+  type: start
+  version: "1.0"
+  name: Start
+  description: Starts a workflow with the run input.
+  lifecycle: active
+spec:
+  category: Control
+  color: "#2563eb"
+  execution:
+    kind: python
+    handler: ".handler:StartNode"
+  inputs: []
+  outputs:
+    - name: output
+      label: Output
+      dataType: object
+  configSchema:
+    type: object
+    properties: {}
+    additionalProperties: false
+  defaultConfig: {}

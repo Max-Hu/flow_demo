@@ -1,0 +1,24 @@
+apiVersion: flowforge/v1
+kind: NodeType
+metadata:
+  type: end
+  version: "1.0"
+  name: End
+  description: Completes the workflow and exposes its input as the run result.
+  lifecycle: active
+spec:
+  category: Control
+  color: "#059669"
+  execution:
+    kind: python
+    handler: ".handler:EndNode"
+  inputs:
+    - name: input
+      label: Input
+      dataType: object
+  outputs: []
+  configSchema:
+    type: object
+    properties: {}
+    additionalProperties: false
+  defaultConfig: {}

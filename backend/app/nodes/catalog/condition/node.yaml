@@ -1,0 +1,43 @@
+apiVersion: flowforge/v1
+kind: NodeType
+metadata:
+  type: condition
+  version: "1.0"
+  name: Condition
+  description: Routes data to the true or false output.
+  lifecycle: active
+spec:
+  category: Logic
+  color: "#d97706"
+  execution:
+    kind: python
+    handler: ".handler:ConditionNode"
+  inputs:
+    - name: input
+      label: Input
+      dataType: object
+  outputs:
+    - name: "true"
+      label: "True"
+      dataType: object
+    - name: "false"
+      label: "False"
+      dataType: object
+  configSchema:
+    type: object
+    properties:
+      field:
+        type: string
+        title: Input field
+      operator:
+        type: string
+        title: Operator
+        enum: [equals, not_equals, greater_than, greater_than_or_equal, less_than, less_than_or_equal, contains]
+      value:
+        title: Comparison value
+    required: [field, operator, value]
+    additionalProperties: false
+  defaultConfig:
+    field: score
+    operator: greater_than_or_equal
+    value: 70

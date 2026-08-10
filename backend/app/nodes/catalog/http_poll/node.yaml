@@ -1,0 +1,68 @@
+apiVersion: flowforge/v1
+kind: NodeType
+metadata:
+  type: http_poll
+  version: "1.0"
+  name: HTTP Poll
+  description: Polls a JSON HTTP endpoint until a response field matches an expected value.
+  lifecycle: active
+spec:
+  category: Integration
+  color: "#9333ea"
+  execution:
+    kind: durable_poll
+    handler: ".handler:HttpPollNode"
+  inputs:
+    - name: input
+      label: Input
+      dataType: object
+  outputs:
+    - name: output
+      label: Matched response
+      dataType: object
+  configSchema:
+    type: object
+    properties:
+      url:
+        type: string
+        title: URL
+      credentialRef:
+        type: string
+        title: Authentication
+        format: flow-credential
+      responsePath:
+        type: string
+        title: Response field
+      operator:
+        type: string
+        title: Operator
+        enum: [equals, not_equals, greater_than, greater_than_or_equal, less_than, less_than_or_equal, contains]
+      expectedValue:
+        type: string
+        title: Expected value
+      intervalSeconds:
+        type: integer
+        title: Poll interval (seconds)
+        minimum: 1
+        maximum: 3600
+      maxPolls:
+        type: integer
+        title: Maximum polls
+        minimum: 1
+        maximum: 1000
+      requestTimeoutSeconds:
+        type: integer
+        title: Request timeout (seconds)
+        minimum: 1
+        maximum: 30
+    required: [url, responsePath, operator, expectedValue, intervalSeconds, maxPolls, requestTimeoutSeconds]
+    additionalProperties: false
+  defaultConfig:
+    url: "http://partner-api:8001/jobs/{jobId}"
+    credentialRef: ""
+    responsePath: status
+    operator: equals
+    expectedValue: COMPLETED
+    intervalSeconds: 10
+    maxPolls: 60
+    requestTimeoutSeconds: 10
