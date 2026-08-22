@@ -2,9 +2,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.enums import FlowStatus
+from app.enums import FlowStatus, GroupRole
 from app.input_schema import demo_input_schema
-from app.models import FlowCredential, FlowDefinition, FlowVersion
+from app.models import FlowCredential, FlowDefinition, FlowVersion, Group, GroupMember, User
 from app.security.credentials import add_audit, create_revision
 
 DEMO_FLOW_NAME = "Customer Score Automation"
@@ -15,6 +15,46 @@ CREDENTIAL_FLOW_NAME = "Credential Authentication Demo"
 CREDENTIAL_ALIAS = "demo_partner_api"
 CALLBACK_FLOW_NAME = "HTTP Callback Demo"
 CALLBACK_CREDENTIAL_ALIAS = "callback_demo_auth"
+DEFAULT_GROUP_ID = "default"
+
+
+def ensure_default_identity(db: Session) -> Group:
+    settings = get_settings()
+    group = db.get(Group, DEFAULT_GROUP_ID)
+    if group is None:
+        group = Group(
+            id=DEFAULT_GROUP_ID,
+            name=settings.default_group_name,
+            description="Default seeded workspace.",
+        )
+        db.add(group)
+        db.flush()
+
+    user = db.scalar(select(User).where(User.username == settings.admin_username))
+    if user is None:
+        user = User(
+            username=settings.admin_username,
+            password_hash=settings.admin_password_hash,
+            display_name=settings.admin_username,
+            is_super_admin=True,
+            enabled=True,
+        )
+        db.add(user)
+        db.flush()
+    elif not user.password_hash:
+        user.password_hash = settings.admin_password_hash
+
+    for role in GroupRole:
+        exists = db.scalar(
+            select(GroupMember).where(
+                GroupMember.group_id == group.id,
+                GroupMember.user_id == user.id,
+                GroupMember.role == role.value,
+            )
+        )
+        if exists is None:
+            db.add(GroupMember(group_id=group.id, user_id=user.id, role=role.value))
+    return group
 
 
 def poll_input_schema() -> dict:
@@ -405,6 +445,7 @@ def demo_flow_content() -> dict:
 
 
 def seed_credential_demo_flow(db: Session) -> None:
+    group = ensure_default_identity(db)
     flow = db.scalar(
         select(FlowDefinition).where(FlowDefinition.name == CREDENTIAL_FLOW_NAME)
     )
@@ -414,6 +455,7 @@ def seed_credential_demo_flow(db: Session) -> None:
         config_schema = credential_demo_config_schema()
         default_config = {"partnerBaseUrl": "http://partner-api:8001"}
         flow = FlowDefinition(
+            group_id=group.id,
             name=CREDENTIAL_FLOW_NAME,
             description=(
                 "Uses an encrypted Flow Credential for an authenticated request and "
@@ -430,6 +472,7 @@ def seed_credential_demo_flow(db: Session) -> None:
         db.flush()
         db.add(
             FlowVersion(
+                group_id=group.id,
                 flow_id=flow.id,
                 version_number=1,
                 content=content,
@@ -447,6 +490,7 @@ def seed_credential_demo_flow(db: Session) -> None:
     )
     if credential is None:
         credential = FlowCredential(
+            group_id=group.id,
             flow_id=flow.id,
             alias=CREDENTIAL_ALIAS,
             credential_type="BEARER",
@@ -477,6 +521,7 @@ def seed_credential_demo_flow(db: Session) -> None:
 
 
 def seed_callback_demo_flow(db: Session) -> None:
+    group = ensure_default_identity(db)
     flow = db.scalar(
         select(FlowDefinition).where(FlowDefinition.name == CALLBACK_FLOW_NAME)
     )
@@ -484,6 +529,7 @@ def seed_callback_demo_flow(db: Session) -> None:
         content = callback_demo_flow_content()
         input_schema = callback_demo_input_schema()
         flow = FlowDefinition(
+            group_id=group.id,
             name=CALLBACK_FLOW_NAME,
             description=(
                 "Waits without holding a worker until an authenticated third party "
@@ -498,6 +544,7 @@ def seed_callback_demo_flow(db: Session) -> None:
         db.flush()
         db.add(
             FlowVersion(
+                group_id=group.id,
                 flow_id=flow.id,
                 version_number=1,
                 content=content,
@@ -513,6 +560,7 @@ def seed_callback_demo_flow(db: Session) -> None:
     )
     if credential is None:
         credential = FlowCredential(
+            group_id=group.id,
             flow_id=flow.id,
             alias=CALLBACK_CREDENTIAL_ALIAS,
             credential_type="BEARER",
@@ -539,10 +587,12 @@ def seed_callback_demo_flow(db: Session) -> None:
 
 
 def seed_demo_flow(db: Session) -> None:
+    group = ensure_default_identity(db)
     existing = db.scalar(select(FlowDefinition).where(FlowDefinition.name == DEMO_FLOW_NAME))
     if existing is None:
         content = demo_flow_content()
         flow = FlowDefinition(
+            group_id=group.id,
             name=DEMO_FLOW_NAME,
             description="Calls a partner API and routes customers based on the returned score.",
             status=FlowStatus.ACTIVE,
@@ -554,6 +604,7 @@ def seed_demo_flow(db: Session) -> None:
         db.flush()
         db.add(
             FlowVersion(
+                group_id=group.id,
                 flow_id=flow.id,
                 version_number=1,
                 content=content,
@@ -566,6 +617,7 @@ def seed_demo_flow(db: Session) -> None:
     if manual_existing is None:
         content = manual_flow_content()
         flow = FlowDefinition(
+            group_id=group.id,
             name=MANUAL_FLOW_NAME,
             description="Pauses for an operator decision before completing the run.",
             status=FlowStatus.ACTIVE,
@@ -577,6 +629,7 @@ def seed_demo_flow(db: Session) -> None:
         db.flush()
         db.add(
             FlowVersion(
+                group_id=group.id,
                 flow_id=flow.id,
                 version_number=1,
                 content=content,
@@ -589,6 +642,7 @@ def seed_demo_flow(db: Session) -> None:
     if variable_existing is None:
         content = variable_flow_content()
         flow = FlowDefinition(
+            group_id=group.id,
             name=VARIABLE_FLOW_NAME,
             description="Stores an API result in the run context and reuses it from a template.",
             status=FlowStatus.ACTIVE,
@@ -600,6 +654,7 @@ def seed_demo_flow(db: Session) -> None:
         db.flush()
         db.add(
             FlowVersion(
+                group_id=group.id,
                 flow_id=flow.id,
                 version_number=1,
                 content=content,
@@ -613,6 +668,7 @@ def seed_demo_flow(db: Session) -> None:
         content = poll_flow_content()
         input_schema = poll_input_schema()
         flow = FlowDefinition(
+            group_id=group.id,
             name=POLL_FLOW_NAME,
             description="Polls a demo third-party job without holding a worker between requests.",
             status=FlowStatus.ACTIVE,
@@ -624,6 +680,7 @@ def seed_demo_flow(db: Session) -> None:
         db.flush()
         db.add(
             FlowVersion(
+                group_id=group.id,
                 flow_id=flow.id,
                 version_number=1,
                 content=content,

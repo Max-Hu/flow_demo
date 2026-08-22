@@ -8,20 +8,31 @@ import { FlowListPage } from './pages/FlowListPage'
 import { LoginPage } from './pages/LoginPage'
 import { RunPage } from './pages/RunPage'
 import { RunsPage } from './pages/RunsPage'
+import type { Group } from './types'
 
 export function App() {
   const [username, setUsername] = useState<string | null>(null)
+  const [groups, setGroups] = useState<Group[]>([])
+  const [currentGroupId, setCurrentGroupId] = useState('')
   const [checking, setChecking] = useState(true)
 
   useEffect(() => {
-    void api.me().then((result) => setUsername(result.username)).catch(() => setUsername(null)).finally(() => setChecking(false))
+    void api.me().then((result) => {
+      setUsername(result.username)
+      setGroups(result.groups)
+      setCurrentGroupId(api.currentGroupId())
+    }).catch(() => setUsername(null)).finally(() => setChecking(false))
     const unauthorized = () => setUsername(null)
     window.addEventListener('flowforge:unauthorized', unauthorized)
     return () => window.removeEventListener('flowforge:unauthorized', unauthorized)
   }, [])
 
   if (checking) return <div className="app-loading">Loading FlowForge…</div>
-  if (!username) return <LoginPage onLogin={setUsername} />
+  if (!username) return <LoginPage onLogin={(profile) => {
+    setUsername(profile.username)
+    setGroups(profile.groups)
+    setCurrentGroupId(api.currentGroupId())
+  }} />
 
   return (
     <div className="app-shell">
@@ -37,7 +48,16 @@ export function App() {
           <NavLink to="/flows"><Activity size={17} /> Flows</NavLink>
           <NavLink to="/runs"><History size={17} /> Runs</NavLink>
         </nav>
-        <div className="header-account"><div className="environment-pill"><span /> Local environment</div><small>{username}</small><button className="icon-button" title="Sign out" onClick={() => void api.logout().finally(() => setUsername(null))}><LogOut size={16} /></button></div>
+        <div className="header-account">
+          <div className="environment-pill"><span /> Local environment</div>
+          {groups.length > 0 && <select value={currentGroupId} onChange={(event) => {
+            api.setCurrentGroupId(event.target.value)
+            setCurrentGroupId(event.target.value)
+            window.location.assign('/flows')
+          }}>{groups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select>}
+          <small>{username}</small>
+          <button className="icon-button" title="Sign out" onClick={() => void api.logout().finally(() => setUsername(null))}><LogOut size={16} /></button>
+        </div>
       </header>
       <main className="app-main">
         <Routes>

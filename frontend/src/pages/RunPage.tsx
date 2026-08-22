@@ -10,7 +10,7 @@ import { ArrowLeft, Ban, CirclePlay, Database, RefreshCw, RotateCcw } from 'luci
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
-import { API_URL, api } from '../api'
+import { api } from '../api'
 import { WorkflowNode } from '../components/WorkflowNode'
 import { RuntimeEdge, type RuntimeEdgeState, type RuntimeEdgeType } from '../components/RuntimeEdge'
 import type { NodeRun, NodeTypeDefinition, RunDetail, WorkflowNode as WorkflowNodeType } from '../types'
@@ -58,7 +58,7 @@ export function RunPage() {
 
   useEffect(() => {
     if (!run || terminalStatuses.has(run.status)) return
-    const source = new EventSource(`${API_URL}/runs/${runId}/events`, { withCredentials: true })
+    const source = new EventSource(api.runEventsUrl(runId), { withCredentials: true })
     source.addEventListener('workflow', () => { void refresh() })
     source.onerror = () => {
       source.close()

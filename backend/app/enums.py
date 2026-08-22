@@ -44,3 +44,19 @@ class RunTriggerType(StrEnum):
     MANUAL = "MANUAL"
     SCHEDULE = "SCHEDULE"
     RERUN = "RERUN"
+
+
+class GroupRole(StrEnum):
+    GROUP_ADMIN = "GROUP_ADMIN"
+    FLOW_DESIGNER = "FLOW_DESIGNER"
+    FLOW_EXECUTOR = "FLOW_EXECUTOR"
+    APPROVER = "APPROVER"
+    VIEWER = "VIEWER"
+
+
+class ApprovalTaskStatus(StrEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"
+    CANCELLED = "CANCELLED"

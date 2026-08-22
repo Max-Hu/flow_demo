@@ -139,7 +139,6 @@ function DesignerCanvas() {
   const [defaultConfig, setDefaultConfig] = useState<Record<string, unknown>>({})
   const [credentials, setCredentials] = useState<FlowCredential[]>([])
   const [runInput, setRunInput] = useState<Record<string, unknown>>({})
-  const [runConfig, setRunConfig] = useState<Record<string, unknown>>({})
   const [past, setPast] = useState<EditorSnapshot[]>([])
   const [future, setFuture] = useState<EditorSnapshot[]>([])
   const [savedHash, setSavedHash] = useState('')
@@ -155,7 +154,6 @@ function DesignerCanvas() {
   const [scheduleTimezone, setScheduleTimezone] = useState('UTC')
   const [scheduleVersion, setScheduleVersion] = useState<number | null>(null)
   const [scheduleInput, setScheduleInput] = useState<Record<string, unknown>>({})
-  const [scheduleConfig, setScheduleConfig] = useState<Record<string, unknown>>({})
   const [credentialAlias, setCredentialAlias] = useState('partner_api')
   const [credentialType, setCredentialType] = useState<'BEARER' | 'BASIC' | 'API_KEY_HEADER'>('BEARER')
   const [credentialOrigins, setCredentialOrigins] = useState('https://partner.example.com')
@@ -208,7 +206,6 @@ function DesignerCanvas() {
     setInputSchema(structuredClone(snapshot.inputSchema))
     setConfigSchema(structuredClone(snapshot.configSchema))
     setDefaultConfig(structuredClone(snapshot.defaultConfig))
-    setRunConfig(structuredClone(snapshot.defaultConfig))
     setRunInput(inputDefaults(snapshot.inputSchema))
     setSelectedId(null)
     setSelectedEdgeId(null)
@@ -252,7 +249,6 @@ function DesignerCanvas() {
     setConfigSchema(loadedConfigSchema)
     setDefaultConfig(loadedDefaultConfig)
     setRunInput(inputDefaults(schema))
-    setRunConfig(structuredClone(loadedDefaultConfig))
     setSavedHash(documentHash({ content: loadedFlow.draft_content, inputSchema: schema, configSchema: loadedConfigSchema, defaultConfig: loadedDefaultConfig }))
     setPast([])
     setFuture([])
@@ -273,7 +269,6 @@ function DesignerCanvas() {
         setCredentials(loadedCredentials)
         setScheduleVersion(loadedVersions[0]?.version_number ?? null)
         setScheduleInput(loadedVersions[0] ? inputDefaults(loadedVersions[0].input_schema) : {})
-        setScheduleConfig(structuredClone(loadedVersions[0]?.default_config ?? {}))
         loadEditor(loadedFlow, loadedVersions, loadedDefinitions)
       })
       .catch((err: Error) => setNotice({ kind: 'error', text: err.message }))
@@ -400,6 +395,26 @@ function DesignerCanvas() {
     updateSelected({ config: { ...selectedNode.data.config, [key]: value } })
   }
 
+  const updateFlowConfigPatch = (raw: string) => {
+    if (!selectedNode) return
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      updateSelected({ flowConfigPatch: undefined })
+      return
+    }
+    try {
+      const parsed = JSON.parse(trimmed) as unknown
+      if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+        throw new Error('Flow configuration patch must be a JSON object.')
+      }
+      const patch = parsed as Record<string, unknown>
+      updateSelected({ flowConfigPatch: Object.keys(patch).length ? patch : undefined })
+      setNotice({ kind: 'success', text: 'Flow configuration patch updated.' })
+    } catch (err) {
+      setNotice({ kind: 'error', text: err instanceof Error ? err.message : 'Invalid JSON patch.' })
+    }
+  }
+
   const updateSchema = (schema: JsonSchema) => {
     commitHistory()
     setInputSchema(schema)
@@ -469,7 +484,6 @@ function DesignerCanvas() {
     commitHistory()
     setConfigSchema(schema)
     setDefaultConfig(defaults)
-    setRunConfig(defaults)
   }
 
   const addConfigField = () => {
@@ -600,11 +614,10 @@ function DesignerCanvas() {
         setVersions(loadedVersions)
         setScheduleVersion(version.version_number)
         setScheduleInput(inputDefaults(loadedVersions[0].input_schema))
-        setScheduleConfig(structuredClone(loadedVersions[0].default_config))
         setNotice({ kind: 'success', text: `Published version ${version.version_number}.` })
       }
       if (action === 'run') {
-        const run = await api.createRun(saved.id, runInput, undefined, runConfig)
+        const run = await api.createRun(saved.id, runInput)
         navigate(`/runs/${run.id}`)
       }
     } catch (err) {
@@ -645,7 +658,6 @@ function DesignerCanvas() {
     const version = versions.find((item) => item.version_number === versionNumber)
     setScheduleVersion(versionNumber)
     setScheduleInput(version ? inputDefaults(version.input_schema) : {})
-    setScheduleConfig(structuredClone(version?.default_config ?? {}))
   }
 
   const createSchedule = async () => {
@@ -658,7 +670,6 @@ function DesignerCanvas() {
         timezone: scheduleTimezone,
         versionNumber: scheduleVersion,
         inputData: scheduleInput,
-        configOverrides: scheduleConfig,
         enabled: true,
       })
       setSchedules(await api.schedules(flow.id))
@@ -794,7 +805,6 @@ function DesignerCanvas() {
           <div className="quick-run schema-run">
             <div><strong>Test input</strong><small>Generated from the draft schema</small></div>
             <SchemaInputFields schema={inputSchema} value={runInput} onChange={setRunInput} compact />
-            {Object.keys(configSchema.properties).length > 0 && <SchemaInputFields schema={configSchema} value={runConfig} onChange={setRunConfig} compact />}
             <button className="button run" disabled={busy} onClick={() => void runAction('run')}><Play size={16} /> Publish & run</button>
           </div>
         </div>
@@ -881,7 +891,6 @@ function DesignerCanvas() {
                   <label>Timezone<input value={scheduleTimezone} onChange={(event) => setScheduleTimezone(event.target.value)} placeholder="UTC" /></label>
                   <label>Published version<select value={scheduleVersion ?? ''} onChange={(event) => selectScheduleVersion(Number(event.target.value))}>{versions.map((version) => <option key={version.id} value={version.version_number}>Version {version.version_number}</option>)}</select></label>
                   {scheduleVersion && <SchemaInputFields schema={versions.find((item) => item.version_number === scheduleVersion)?.input_schema ?? emptySchema} value={scheduleInput} onChange={setScheduleInput} />}
-                  {scheduleVersion && Object.keys(versions.find((item) => item.version_number === scheduleVersion)?.config_schema.properties ?? {}).length > 0 && <><p className="property-help">Flow configuration overrides</p><SchemaInputFields schema={versions.find((item) => item.version_number === scheduleVersion)?.config_schema ?? emptySchema} value={scheduleConfig} onChange={setScheduleConfig} /></>}
                   <button className="button primary full" disabled={busy || !scheduleName.trim()} onClick={() => void createSchedule()}><Plus size={15} /> Create schedule</button>
                   <p className="property-help">Examples: <code>*/5 * * * *</code> every five minutes, <code>0 9 * * 1-5</code> weekdays at 09:00.</p>
                 </div>
@@ -908,6 +917,14 @@ function DesignerCanvas() {
                     const inputType = property.type === 'number' || property.type === 'integer' || typeof value === 'number' ? 'number' : 'text'
                     return <label key={key}>{property.title ?? key}{property.format === 'flow-credential' ? <select value={String(value ?? '')} onChange={(event) => updateConfig(key, event.target.value)}><option value="">No authentication</option>{credentials.filter((item) => item.enabled).map((item) => <option value={item.alias} key={item.id}>{item.alias} · {item.type}</option>)}</select> : property.enum ? <select value={String(value ?? '')} onChange={(event) => updateConfig(key, event.target.value)}>{property.enum.map((option) => <option key={String(option)} value={String(option)}>{String(option)}</option>)}</select> : <input type={inputType} value={String(value ?? '')} min={property.minimum} max={property.maximum} onChange={(event) => updateConfig(key, inputType === 'number' ? Number(event.target.value) : event.target.value)} />}</label>
                   })}
+                  <label>Flow configuration patch
+                    <textarea
+                      key={`${selectedNode.id}:${JSON.stringify(selectedNode.data.flowConfigPatch ?? {})}`}
+                      defaultValue={JSON.stringify(selectedNode.data.flowConfigPatch ?? {}, null, 2)}
+                      onBlur={(event) => updateFlowConfigPatch(event.target.value)}
+                    />
+                  </label>
+                  <p className="property-help">Optional JSON object merged into <code>flowConfig</code> after this node succeeds. Template values such as <code>{'{{ input.field }}'}</code> are resolved at runtime.</p>
                   {selectedNode.data.nodeType === 'set_variable' && <p className="property-help">Use <code>{'{{ input.field }}'}</code>, <code>{'{{ variables.name }}'}</code>, or <code>{'{{ run.id }}'}</code>. A full template preserves numbers, booleans, objects, and arrays.</p>}
                   <p className="property-help">Changes are stored in the draft when you click Save.</p>
                   <button className="button danger full" onClick={deleteNode}><Trash2 size={16} /> Delete node</button>

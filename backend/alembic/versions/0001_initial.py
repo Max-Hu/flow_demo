@@ -68,15 +68,13 @@ def upgrade() -> None:
         sa.Column("attempts", sa.Integer(), nullable=False),
         sa.Column("max_attempts", sa.Integer(), nullable=False),
         sa.Column("available_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("lease_owner", sa.String(100), nullable=True),
-        sa.Column("lease_expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["flow_run_id"], ["flow_run.id"], ondelete="CASCADE"),
         sa.UniqueConstraint("flow_run_id", "node_id"),
     )
-    op.create_index("ix_node_run_claim", "node_run", ["status", "available_at"])
+    op.create_index("ix_node_run_status_available", "node_run", ["status", "available_at"])
     op.create_table(
         "node_run_attempt",
         sa.Column("id", sa.String(36), primary_key=True),

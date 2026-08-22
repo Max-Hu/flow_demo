@@ -37,42 +37,55 @@ services:
       WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID: ${WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID:?Set WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID in .env}
       WORKFLOW_DEMO_PARTNER_TOKEN: ${PARTNER_API_DEMO_TOKEN:-flowforge-local-demo-token}
       WORKFLOW_CALLBACK_BASE_URL: ${WORKFLOW_CALLBACK_BASE_URL:-http://localhost:8000}
+      WORKFLOW_TEMPORAL_ADDRESS: temporal:7233
+      WORKFLOW_TEMPORAL_NAMESPACE: default
+      WORKFLOW_TEMPORAL_TASK_QUEUE: flowforge-default
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     ports:
       - "8000:8000"
     depends_on:
       database:
         condition: service_healthy
+      temporal:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 5s
       timeout: 3s
       retries: 20
 
-  worker:
+  temporal:
+    image: temporalio/auto-setup:1.28
+    environment:
+      DB: postgresql
+      DB_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-workflow}
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-workflow}
+      POSTGRES_SEEDS: database
+    ports:
+      - "7233:7233"
+    depends_on:
+      database:
+        condition: service_healthy
+
+  temporal-worker:
     build:
       context: ./backend
     environment:
       WORKFLOW_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-workflow}:${POSTGRES_PASSWORD:-workflow}@database:5432/${POSTGRES_DB:-workflow}
-      WORKFLOW_WORKER_NAME: local-worker
       WORKFLOW_CREDENTIAL_KEYS: ${WORKFLOW_CREDENTIAL_KEYS:?Set WORKFLOW_CREDENTIAL_KEYS in .env}
       WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID: ${WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID:?Set WORKFLOW_ACTIVE_CREDENTIAL_KEY_ID in .env}
       WORKFLOW_CALLBACK_BASE_URL: ${WORKFLOW_CALLBACK_BASE_URL:-http://localhost:8000}
-    command: ["python", "worker.py"]
+      WORKFLOW_TEMPORAL_ADDRESS: temporal:7233
+      WORKFLOW_TEMPORAL_NAMESPACE: default
+      WORKFLOW_TEMPORAL_TASK_QUEUE: flowforge-default
+    command: ["python", "temporal_worker.py"]
     depends_on:
       api:
         condition: service_healthy
+      temporal:
+        condition: service_started
       partner-api:
-        condition: service_healthy
-
-  scheduler:
-    build:
-      context: ./backend
-    environment:
-      WORKFLOW_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-workflow}:${POSTGRES_PASSWORD:-workflow}@database:5432/${POSTGRES_DB:-workflow}
-    command: ["python", "scheduler.py"]
-    depends_on:
-      api:
         condition: service_healthy
 
   partner-api:

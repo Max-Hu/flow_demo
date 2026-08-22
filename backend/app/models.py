@@ -31,11 +31,78 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-class FlowDefinition(Base):
-    __tablename__ = "flow_definition"
+class User(Base):
+    __tablename__ = "app_user"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    is_super_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    memberships: Mapped[list["GroupMember"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class Group(Base):
+    __tablename__ = "app_group"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    members: Mapped[list["GroupMember"]] = relationship(
+        back_populates="group", cascade="all, delete-orphan"
+    )
+    flows: Mapped[list["FlowDefinition"]] = relationship(back_populates="group")
+
+
+class GroupMember(Base):
+    __tablename__ = "group_member"
+    __table_args__ = (
+        UniqueConstraint("group_id", "user_id", "role", name="uq_group_member_role"),
+        Index("ix_group_member_user_group", "user_id", "group_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("app_group.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    group: Mapped[Group] = relationship(back_populates="members")
+    user: Mapped[User] = relationship(back_populates="memberships")
+
+
+class FlowDefinition(Base):
+    __tablename__ = "flow_definition"
+    __table_args__ = (UniqueConstraint("group_id", "name", name="uq_flow_definition_group_name"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("app_group.id"), default="default", nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     status: Mapped[str] = mapped_column(String(30), default=FlowStatus.DRAFT, nullable=False)
     draft_content: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
@@ -65,6 +132,7 @@ class FlowDefinition(Base):
     credentials: Mapped[list[FlowCredential]] = relationship(
         back_populates="flow", cascade="all, delete-orphan"
     )
+    group: Mapped[Group] = relationship(back_populates="flows")
 
 
 class FlowVersion(Base):
@@ -72,6 +140,9 @@ class FlowVersion(Base):
     __table_args__ = (UniqueConstraint("flow_id", "version_number"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("app_group.id"), default="default", nullable=False
+    )
     flow_id: Mapped[str] = mapped_column(
         ForeignKey("flow_definition.id", ondelete="CASCADE"), nullable=False
     )
@@ -84,6 +155,7 @@ class FlowVersion(Base):
         JSON, default=empty_config_schema, nullable=False
     )
     default_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    node_registry_fingerprint: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -97,6 +169,9 @@ class FlowRun(Base):
     __table_args__ = (Index("ix_flow_run_status_created", "status", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("app_group.id"), default="default", nullable=False
+    )
     flow_id: Mapped[str] = mapped_column(ForeignKey("flow_definition.id"), nullable=False)
     flow_version_id: Mapped[str] = mapped_column(ForeignKey("flow_version.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(30), default=RunStatus.PENDING, nullable=False)
@@ -114,6 +189,7 @@ class FlowRun(Base):
     )
     idempotency_key: Mapped[str | None] = mapped_column(String(200), unique=True, nullable=True)
     source_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    temporal_workflow_id: Mapped[str | None] = mapped_column(String(240), nullable=True)
     requested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -144,6 +220,9 @@ class FlowSchedule(Base):
     __table_args__ = (Index("ix_flow_schedule_due", "enabled", "next_run_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("app_group.id"), default="default", nullable=False
+    )
     flow_id: Mapped[str] = mapped_column(
         ForeignKey("flow_definition.id", ondelete="CASCADE"), nullable=False
     )
@@ -155,6 +234,7 @@ class FlowSchedule(Base):
     timezone: Mapped[str] = mapped_column(String(100), default="UTC", nullable=False)
     input_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     config_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    temporal_schedule_id: Mapped[str | None] = mapped_column(String(240), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_triggered_at: Mapped[datetime | None] = mapped_column(
@@ -179,6 +259,7 @@ class FlowRunVariable(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    group_id: Mapped[str] = mapped_column(String(36), default="default", nullable=False)
     flow_run_id: Mapped[str] = mapped_column(
         ForeignKey("flow_run.id", ondelete="CASCADE"), nullable=False
     )
@@ -202,6 +283,9 @@ class FlowCredential(Base):
     __table_args__ = (UniqueConstraint("flow_id", "alias", name="uq_flow_credential_alias"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("app_group.id"), default="default", nullable=False
+    )
     flow_id: Mapped[str] = mapped_column(
         ForeignKey("flow_definition.id", ondelete="CASCADE"), nullable=False
     )
@@ -248,6 +332,7 @@ class AdminSession(Base):
     __tablename__ = "admin_session"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     csrf_token: Mapped[str] = mapped_column(String(100), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -262,6 +347,7 @@ class SecurityAuditEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    group_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     flow_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     credential_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     actor: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -275,7 +361,7 @@ class NodeRun(Base):
     __tablename__ = "node_run"
     __table_args__ = (
         UniqueConstraint("flow_run_id", "node_id"),
-        Index("ix_node_run_claim", "status", "available_at"),
+        Index("ix_node_run_status_available", "status", "available_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
@@ -295,10 +381,6 @@ class NodeRun(Base):
     max_attempts: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     available_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
-    )
-    lease_owner: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -376,6 +458,7 @@ class FlowEvent(Base):
     __table_args__ = (Index("ix_flow_event_run_id_id", "flow_run_id", "id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[str] = mapped_column(String(36), default="default", nullable=False)
     flow_run_id: Mapped[str] = mapped_column(
         ForeignKey("flow_run.id", ondelete="CASCADE"), nullable=False
     )
@@ -387,3 +470,61 @@ class FlowEvent(Base):
     )
 
     flow_run: Mapped[FlowRun] = relationship(back_populates="events")
+
+
+class ApprovalGroup(Base):
+    __tablename__ = "approval_group"
+    __table_args__ = (UniqueConstraint("group_id", "alias", name="uq_approval_group_alias"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("app_group.id", ondelete="CASCADE"), nullable=False
+    )
+    alias: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class ApprovalGroupMember(Base):
+    __tablename__ = "approval_group_member"
+    __table_args__ = (
+        UniqueConstraint("approval_group_id", "user_id", name="uq_approval_group_member"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    approval_group_id: Mapped[str] = mapped_column(
+        ForeignKey("approval_group.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False
+    )
+
+
+class ApprovalTask(Base):
+    __tablename__ = "approval_task"
+    __table_args__ = (
+        Index("ix_approval_task_group_status", "group_id", "status"),
+        UniqueConstraint("flow_run_id", "node_id", name="uq_approval_task_node"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    group_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    approval_group_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    flow_run_id: Mapped[str] = mapped_column(
+        ForeignKey("flow_run.id", ondelete="CASCADE"), nullable=False
+    )
+    node_run_id: Mapped[str] = mapped_column(
+        ForeignKey("node_run.id", ondelete="CASCADE"), nullable=False
+    )
+    node_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="PENDING", nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    decision: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    comment: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    decided_by_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )

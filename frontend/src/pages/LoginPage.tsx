@@ -2,8 +2,9 @@ import { GitBranch, LogIn } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 
 import { api } from '../api'
+import type { AuthProfile } from '../types'
 
-export function LoginPage({ onLogin }: { onLogin: (username: string) => void }) {
+export function LoginPage({ onLogin }: { onLogin: (profile: AuthProfile) => void }) {
   const [username, setUsername] = useState('admin')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -15,7 +16,7 @@ export function LoginPage({ onLogin }: { onLogin: (username: string) => void }) 
     setError('')
     try {
       const result = await api.login(username, password)
-      onLogin(result.username)
+      onLogin(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
     } finally {

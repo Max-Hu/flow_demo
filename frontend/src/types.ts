@@ -55,6 +55,7 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   nodeType: string
   nodeVersion: string
   config: Record<string, unknown>
+  flowConfigPatch?: Record<string, unknown>
   definition?: NodeTypeDefinition
   runtimeStatus?: string
 }
@@ -180,7 +181,6 @@ export interface FlowSchedule {
   timezone: string
   version_number: number
   input_data: Record<string, unknown>
-  config_overrides: Record<string, unknown>
   enabled: boolean
   next_run_at: string
   last_triggered_at?: string
@@ -200,4 +200,19 @@ export interface FlowCredential {
   revision: number
   created_at: string
   updated_at: string
+}
+
+export interface Group {
+  id: string
+  name: string
+  description: string
+  roles: string[]
+}
+
+export interface AuthProfile {
+  username: string
+  csrf_token: string
+  is_super_admin: boolean
+  groups: Group[]
+  current_group_id?: string
 }

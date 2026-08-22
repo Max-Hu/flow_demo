@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import callbacks, seed
+from app import callback_api
 from app.callback_api import router as callback_router
 from app.config import Settings
 from app.database import Base, get_db
@@ -30,7 +31,6 @@ from app.models import (
 from app.schemas import FlowContent
 from app.security import crypto
 from app.security.crypto import encrypt_secret
-from app.workflow.engine import advance_run, recover_and_promote
 from app.workflow.validator import validate_flow
 
 
@@ -186,6 +186,7 @@ def test_bearer_callback_is_authenticated_idempotent_and_resumes_run(
             id="run-1",
             flow=flow,
             flow_version=version,
+            temporal_workflow_id="default:run-1",
             status=RunStatus.WAITING_CALLBACK,
             input_data={"requestId": "REQ-1"},
             flow_config={},
@@ -243,6 +244,21 @@ def test_bearer_callback_is_authenticated_idempotent_and_resumes_run(
     app = FastAPI()
     app.dependency_overrides[get_db] = db_override
     app.include_router(callback_router, prefix="/api/callbacks")
+    signalled: list[dict] = []
+
+    class WorkflowHandle:
+        async def signal(self, _signal, payload: dict) -> None:
+            signalled.append(payload)
+
+    class TemporalClient:
+        def get_workflow_handle(self, workflow_id: str) -> WorkflowHandle:
+            assert workflow_id == "default:run-1"
+            return WorkflowHandle()
+
+    async def temporal_client() -> TemporalClient:
+        return TemporalClient()
+
+    monkeypatch.setattr(callback_api, "get_temporal_client", temporal_client)
     headers = {
         "Authorization": "Bearer callback-secret",
         "Content-Type": "application/json",
@@ -277,19 +293,30 @@ def test_bearer_callback_is_authenticated_idempotent_and_resumes_run(
         run = db.get(FlowRun, "run-1")
         node_run = db.get(NodeRun, "node-run-1")
         callback = db.get(CallbackWait, "callback-1")
-        assert run is not None and run.status == RunStatus.SUCCESS
-        assert node_run is not None and node_run.status == NodeRunStatus.SUCCESS
-        assert node_run.output_data["approved"] is True
+        assert run is not None and run.status == RunStatus.WAITING_CALLBACK
+        assert node_run is not None and node_run.status == NodeRunStatus.WAITING_CALLBACK
         assert callback is not None and callback.status == "RECEIVED"
         assert callback.idempotency_key == "partner-event-1"
         event_types = set(db.scalars(select(FlowEvent.event_type)).all())
-        assert {"CALLBACK_REJECTED", "CALLBACK_RECEIVED", "RUN_SUCCEEDED"} <= event_types
+        assert {"CALLBACK_REJECTED", "CALLBACK_RECEIVED", "CALLBACK_SIGNALLED"} <= event_types
+    assert signalled == [
+        {
+            "node_id": "wait",
+            "callback_id": "callback-1",
+            "data": {"approved": True},
+        }
+    ]
 
 
-def test_expired_callback_fails_node_and_releases_run() -> None:
-    engine = create_engine("sqlite://")
+def test_expired_callback_fails_node_and_run() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(engine)
-    with Session(engine) as db:
+    session_factory = sessionmaker(engine, expire_on_commit=False)
+    with session_factory() as db:
         content = {"schemaVersion": 1, "nodes": [], "edges": []}
         flow = FlowDefinition(
             id="flow-timeout",
@@ -333,63 +360,21 @@ def test_expired_callback_fails_node_and_releases_run() -> None:
         db.add_all([flow, version, run, node_run, callback])
         db.commit()
 
-        recover_and_promote(db)
-        db.commit()
+    def db_override() -> Generator[Session, None, None]:
+        with session_factory() as db:
+            yield db
 
+    app = FastAPI()
+    app.dependency_overrides[get_db] = db_override
+    app.include_router(callback_router, prefix="/api/callbacks")
+    with TestClient(app) as client:
+        response = client.post("/api/callbacks/callback-timeout", json={"ok": True})
+        assert response.status_code == 410
+
+    with session_factory() as db:
+        run = db.get(FlowRun, "run-timeout")
+        node_run = db.get(NodeRun, "node-timeout")
+        callback = db.get(CallbackWait, "callback-timeout")
         assert callback.status == "EXPIRED"
         assert node_run.status == NodeRunStatus.FAILED
-        assert run.status == RunStatus.RUNNING
-
-
-def test_cancelling_run_invalidates_waiting_callback() -> None:
-    engine = create_engine("sqlite://")
-    Base.metadata.create_all(engine)
-    with Session(engine) as db:
-        content = {"schemaVersion": 1, "nodes": [], "edges": []}
-        flow = FlowDefinition(
-            id="flow-cancel",
-            name="Callback cancel",
-            description="",
-            draft_content=content,
-            current_version=1,
-        )
-        version = FlowVersion(
-            id="version-cancel", flow=flow, version_number=1, content=content
-        )
-        run = FlowRun(
-            id="run-cancel",
-            flow=flow,
-            flow_version=version,
-            status=RunStatus.WAITING_CALLBACK,
-            input_data={},
-            flow_config={},
-            source_metadata={},
-            cancel_requested=True,
-        )
-        node_run = NodeRun(
-            id="node-cancel",
-            flow_run=run,
-            node_id="wait",
-            node_type="http_callback",
-            node_version="1.0",
-            status=NodeRunStatus.WAITING_CALLBACK,
-        )
-        callback = CallbackWait(
-            id="callback-cancel",
-            flow_run=run,
-            node_run=node_run,
-            node_id="wait",
-            attempt_number=1,
-            status="WAITING",
-            auth_mode="CAPABILITY_URL",
-            expires_at=utc_now() + timedelta(minutes=5),
-        )
-        db.add_all([flow, version, run, node_run, callback])
-        db.commit()
-
-        advance_run(db, run.id)
-        db.commit()
-
-        assert callback.status == "CANCELLED"
-        assert node_run.status == NodeRunStatus.CANCELLED
-        assert run.status == RunStatus.CANCELLED
+        assert run.status == RunStatus.FAILED

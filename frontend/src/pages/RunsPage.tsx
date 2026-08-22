@@ -18,7 +18,6 @@ export function RunsPage() {
   const [selectedFlowId, setSelectedFlowId] = useState('')
   const [selectedVersionNumber, setSelectedVersionNumber] = useState<number | null>(null)
   const [inputData, setInputData] = useState<Record<string, unknown>>({})
-  const [configOverrides, setConfigOverrides] = useState<Record<string, unknown>>({})
   const [busy, setBusy] = useState(false)
   const [rerunningId, setRerunningId] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -45,7 +44,6 @@ export function RunsPage() {
       setVersions([])
       setSelectedVersionNumber(null)
       setInputData({})
-      setConfigOverrides({})
       return
     }
     void api.versions(selectedFlowId).then((items) => {
@@ -53,7 +51,6 @@ export function RunsPage() {
       const latest = items[0]
       setSelectedVersionNumber(latest?.version_number ?? null)
       setInputData(latest ? inputDefaults(latest.input_schema) : {})
-      setConfigOverrides(structuredClone(latest?.default_config ?? {}))
     }).catch((err: Error) => setError(err.message))
   }, [selectedFlowId])
 
@@ -66,7 +63,6 @@ export function RunsPage() {
     const version = versions.find((item) => item.version_number === versionNumber)
     setSelectedVersionNumber(versionNumber)
     setInputData(version ? inputDefaults(version.input_schema) : {})
-    setConfigOverrides(structuredClone(version?.default_config ?? {}))
   }
 
   const startRun = async () => {
@@ -78,7 +74,7 @@ export function RunsPage() {
         return value === undefined || value === null || value === ''
       })
       if (missing.length) throw new Error(`Complete the required fields: ${missing.join(', ')}`)
-      const run = await api.createRun(selectedFlowId, inputData, selectedVersion.version_number, configOverrides)
+      const run = await api.createRun(selectedFlowId, inputData, selectedVersion.version_number)
       navigate(`/runs/${run.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start run')
@@ -127,7 +123,6 @@ export function RunsPage() {
         </label>
         <div className="run-schema-form">
           {selectedVersion && <SchemaInputFields schema={selectedVersion.input_schema} value={inputData} onChange={setInputData} />}
-          {selectedVersion && Object.keys(selectedVersion.config_schema.properties).length > 0 && <><p className="form-section-label">Flow configuration overrides</p><SchemaInputFields schema={selectedVersion.config_schema} value={configOverrides} onChange={setConfigOverrides} /></>}
         </div>
         <button className="button primary" disabled={busy || !selectedVersion} onClick={() => void startRun()}>
           <Play size={16} /> {busy ? 'Starting…' : 'Run now'}

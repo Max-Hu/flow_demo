@@ -10,9 +10,6 @@ class Settings(BaseSettings):
     app_name: str = "FlowForge MVP"
     database_url: str = "postgresql+psycopg://workflow:workflow@localhost:5432/workflow"
     cors_origins: list[str] = ["http://localhost:3000", "http://localhost:5173"]
-    worker_name: str = "worker-1"
-    worker_poll_seconds: float = 0.5
-    worker_lease_seconds: int = 30
     admin_username: str = "admin"
     admin_password_hash: str = ""
     session_cookie_name: str = "flowforge_session"
@@ -22,6 +19,10 @@ class Settings(BaseSettings):
     active_credential_key_id: str = ""
     demo_partner_token: str = "flowforge-local-demo-token"
     callback_base_url: str = "http://localhost:8000"
+    temporal_address: str = "localhost:7233"
+    temporal_namespace: str = "default"
+    temporal_task_queue: str = "flowforge-default"
+    default_group_name: str = "Default Workspace"
 
 
 @lru_cache

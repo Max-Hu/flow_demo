@@ -4,8 +4,8 @@ FlowForge is a local, end-to-end demonstration of a visual automation platform:
 
 - React, TypeScript, and React Flow for workflow design and live run visualization.
 - FastAPI for flow management, validation, publishing, runs, and SSE events.
-- A separate Python worker for durable node execution.
-- A separate Python scheduler for durable cron-triggered runs.
+- Temporal for durable workflow orchestration, timers, retries, waits, callbacks, and schedules.
+- A separate Python Temporal worker for node Activity execution.
 - PostgreSQL for flow versions, run state, node state, attempts, and events.
 - A deterministic local Partner API that behaves like a third-party JSON service.
 
@@ -16,7 +16,7 @@ The seeded demo accepts a customer ID, calls the Partner API, evaluates the retu
 Requirements:
 
 - Docker Desktop with Docker Compose.
-- Ports `3000`, `8000`, `8001`, and `5432` available.
+- Ports `3000`, `7233`, `8000`, `8001`, and `5432` available.
 
 Start the complete stack:
 
@@ -73,7 +73,7 @@ Configuration and Credentials.
 
 To demonstrate an inbound asynchronous integration, run **HTTP Callback Demo**. When the purple
 HTTP Callback node reaches `WAITING_CALLBACK`, select it on the Runs page and copy its unique
-Callback URL. The worker lease has already been released. Send the callback with the seeded local
+Callback URL. Temporal is waiting on a Signal, so no worker is held. Send the callback with the seeded local
 Bearer credential:
 
 ```powershell
@@ -116,16 +116,15 @@ Browser / React Flow
         | REST + SSE
         v
 FastAPI control plane ------> PostgreSQL
-                                  ^
-                                  | durable queue + run state
-                                  |
-Python Worker --------------------+
-Python Scheduler -----------------+
-      |
-      +------ HTTP ------> Demo Partner API
+        |
+        | start / signal / cancel
+        v
+Temporal Server <------ Python Temporal Worker
+                         |
+                         +------ HTTP ------> Demo Partner API
 ```
 
-The API and worker use the same backend image and Python package but run as separate processes. FastAPI never executes a long-running node inside a request.
+The API and Temporal worker use the same backend image and Python package but run as separate processes. FastAPI never executes a long-running node inside a request. Temporal owns durable orchestration, timers, retries, callback/manual waits, cancellation, and worker crash recovery; PostgreSQL stores business data and the UI projection read by the frontend.
 
 ## Flow lifecycle
 
@@ -133,9 +132,9 @@ The API and worker use the same backend image and Python package but run as sepa
 2. Validation checks node implementations, JSON Schema configuration, ports, reachability, and cycles.
 3. Publishing creates an immutable `FlowVersion` containing the graph and input schema.
 4. Starting a run pins that version and creates a durable `NodeRun` for every node.
-5. The worker claims ready nodes using `FOR UPDATE SKIP LOCKED`.
+5. Temporal dispatches node execution to the Python worker through a task queue.
 6. Node output activates downstream nodes. Condition outputs activate only their matching edge.
-7. Worker failures are recovered after a lease expires; node failures use bounded retries.
+7. Worker failures, timers, waits, cancellation, and bounded retries are handled by Temporal.
 8. Manual Approval nodes persist a `WAITING` state until an operator resumes or cancels the run.
 9. Every run records its source (`MANUAL`, `SCHEDULE`, or `RERUN`), source ID, parent run, request time, and source metadata.
 10. Set Variable nodes persist run-scoped JSON values with revision and writer audit data. Safe templates can reference `{{ input.path }}`, `{{ variables.name.path }}`, `{{ flowConfig.key }}`, and `{{ run.id }}` without evaluating arbitrary code.
@@ -146,8 +145,8 @@ The API and worker use the same backend image and Python package but run as sepa
 |---|---:|---|
 | `frontend` | 3000 | React Flow designer and run monitor |
 | `api` | 8000 | FastAPI control plane and SSE |
-| `worker` | — | Durable Python node execution |
-| `scheduler` | — | Cron evaluation and scheduled run creation |
+| `temporal` | 7233 | Temporal orchestration server |
+| `temporal-worker` | — | Durable workflow worker and node Activity execution |
 | `partner-api` | 8001 | Local deterministic third-party API simulation |
 | `database` | 5432 | PostgreSQL state store |
 | `adminer` | 8080 | Local PostgreSQL schema/data browser |
@@ -279,7 +278,7 @@ Flow JSON cannot specify Python modules, file paths, URLs, or custom execution e
 
 ## Durable HTTP polling
 
-The built-in `HTTP Poll` node repeatedly sends a GET request until a JSON response field matches the configured expectation. A poll performs exactly one request. If it does not match, the node enters `POLL_WAIT`, persists the last response and next execution time, releases its worker lease, and is promoted to `READY` when `available_at` is due. It never holds a worker with a sleep loop.
+The built-in `HTTP Poll` node repeatedly sends a GET request until a JSON response field matches the configured expectation. A poll Activity performs exactly one request. If it does not match, the node enters `POLL_WAIT`, persists the last response and next poll timestamp, and Temporal sleeps with a durable timer before dispatching the next Activity attempt. It never holds a worker with a sleep loop.
 
 Example configuration:
 
@@ -317,12 +316,12 @@ Included:
 
 - DAG workflows, branches, joins, retries, cancellation, immutable versions, SSE updates.
 - Registered Python nodes only.
-- Durable HTTP polling that releases the worker between requests.
-- Database-backed durable task claiming and short worker leases.
+- Durable HTTP polling backed by Temporal timers between requests.
+- Temporal task queues, retries, cancellation, callback/manual Signals, and worker crash recovery.
 - Editor undo/redo, unsaved-change protection, schema-driven input forms, version comparison, rollback, and version-specific runs.
 - Cron schedules, flow activation/pause/archive controls, manual waiting and continuation, and run provenance.
 - Run-scoped variables, concurrency-safe writes, Set Variable nodes, safe templates, and a live Variables inspector.
-- Single-administrator session authentication with HttpOnly cookies, CSRF protection, and login throttling.
+- Built-in users, group-scoped access, roles, HttpOnly cookies, CSRF protection, and login throttling.
 - Versioned Flow Configuration plus encrypted, revisioned, flow-scoped HTTP Credentials.
 - Adminer database inspection, a Mermaid ERD/table dictionary, and an authenticated Credential demo Flow.
 - Durable HTTP Callback waits with unique URLs, Bearer/API-key/HMAC authentication, idempotency,
@@ -330,7 +329,8 @@ Included:
 
 Not included:
 
-- Multi-tenancy, fine-grained roles, OAuth2 credentials, Vault, or cloud KMS integration.
-- Arbitrary loops or long-running in-worker timers.
+- OIDC/SSO, OAuth2 credentials, Vault, or cloud KMS integration.
+- Per-group Temporal namespaces; v1 uses one namespace with application-level group isolation.
+- Arbitrary loops or long-running in-Activity sleeps.
 - Arbitrary Python or SQL entered in the UI.
 - Large artifact storage or distributed transactions.

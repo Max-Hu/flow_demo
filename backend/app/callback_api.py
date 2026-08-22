@@ -11,9 +11,11 @@ from sqlalchemy.orm import Session, selectinload
 from app.callbacks import verify_callback_auth
 from app.database import get_db
 from app.enums import NodeRunStatus, RunStatus
+from app.events import emit_event
 from app.models import CallbackWait, FlowRun, NodeRun, NodeRunAttempt, utc_now
 from app.security.redaction import redact_sensitive
-from app.workflow.engine import advance_run, emit_event
+from app.temporal.client import get_temporal_client
+from app.temporal.workflows import GenericFlowWorkflow
 
 router = APIRouter()
 DbSession = Annotated[Session, Depends(get_db)]
@@ -56,7 +58,9 @@ def _expire(db: Session, item: CallbackWait) -> None:
         node_run.status = NodeRunStatus.FAILED
         node_run.error_message = "Callback wait timed out"
         node_run.finished_at = now
-        run.status = RunStatus.RUNNING
+        run.status = RunStatus.FAILED
+        run.error_message = node_run.error_message
+        run.finished_at = now
         attempt = db.scalar(
             select(NodeRunAttempt).where(
                 NodeRunAttempt.node_run_id == node_run.id,
@@ -81,7 +85,6 @@ def _expire(db: Session, item: CallbackWait) -> None:
             {"status": NodeRunStatus.FAILED, "error": node_run.error_message},
             node_run.node_id,
         )
-        advance_run(db, run.id)
     db.commit()
 
 
@@ -152,29 +155,6 @@ async def receive_callback(
     }
     node_run = item.node_run
     run = node_run.flow_run
-    node_run.output_data = {
-        **(node_run.input_data or {}),
-        **safe_payload,
-        "_callback": {
-            "id": item.id,
-            "status": item.status,
-            "receivedAt": now.isoformat(),
-            "authMode": item.auth_mode,
-        },
-    }
-    node_run.status = NodeRunStatus.SUCCESS
-    node_run.error_message = None
-    node_run.finished_at = now
-    attempt = db.scalar(
-        select(NodeRunAttempt).where(
-            NodeRunAttempt.node_run_id == node_run.id,
-            NodeRunAttempt.attempt_number == item.attempt_number,
-        )
-    )
-    if attempt is not None:
-        attempt.status = NodeRunStatus.SUCCESS
-        attempt.finished_at = now
-    run.status = RunStatus.RUNNING
     if revision is not None:
         emit_event(
             db,
@@ -202,11 +182,16 @@ async def receive_callback(
     emit_event(
         db,
         run.id,
-        "NODE_SUCCEEDED",
-        {"status": NodeRunStatus.SUCCESS, "output": node_run.output_data},
+        "CALLBACK_SIGNALLED",
+        {"callbackId": item.id, "nodeId": node_run.node_id},
         node_run.node_id,
     )
-    emit_event(db, run.id, "RUN_RESUMED", {"status": RunStatus.RUNNING})
-    advance_run(db, run.id)
     db.commit()
+    if not run.temporal_workflow_id:
+        raise HTTPException(status_code=409, detail="Run is not attached to a Temporal workflow")
+    client = await get_temporal_client()
+    await client.get_workflow_handle(run.temporal_workflow_id).signal(
+        GenericFlowWorkflow.receive_callback,
+        {"node_id": node_run.node_id, "callback_id": item.id, "data": safe_payload},
+    )
     return _response(item, idempotent=False)

@@ -17,6 +17,9 @@ class FlowNodeData(BaseModel):
     node_type: str = Field(alias="nodeType")
     node_version: str = Field(default="1.0", alias="nodeVersion")
     config: dict[str, Any] = Field(default_factory=dict)
+    flow_config_patch: dict[str, Any] | None = Field(
+        default=None, alias="flowConfigPatch"
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -112,12 +115,85 @@ class ValidationResponse(BaseModel):
     issues: list[ValidationIssue]
 
 
+class GroupResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    roles: list[str] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str = ""
+
+
+class GroupMemberCreate(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    password: str | None = Field(default=None, min_length=8, max_length=200)
+    display_name: str = Field(default="", alias="displayName", max_length=200)
+    roles: list[str] = Field(default_factory=list)
+    is_super_admin: bool = Field(default=False, alias="isSuperAdmin")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class GroupMemberUpdate(BaseModel):
+    roles: list[str]
+
+
+class GroupMemberResponse(BaseModel):
+    user_id: str
+    username: str
+    display_name: str
+    is_super_admin: bool
+    roles: list[str]
+
+
+class ApprovalGroupCreate(BaseModel):
+    alias: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+
+
+class ApprovalGroupResponse(BaseModel):
+    id: str
+    group_id: str
+    alias: str
+    name: str
+    member_user_ids: list[str] = []
+
+
+class AuthUserResponse(BaseModel):
+    username: str
+    csrf_token: str
+    is_super_admin: bool = False
+    groups: list[GroupResponse] = []
+    current_group_id: str | None = None
+
+
+class ApprovalTaskResponse(BaseModel):
+    id: str
+    group_id: str
+    flow_run_id: str
+    node_run_id: str
+    node_id: str
+    status: str
+    prompt: str
+    decision: str | None
+    comment: str
+    decided_by_user_id: str | None
+    decided_at: datetime | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class RunCreate(BaseModel):
     input_data: dict[str, Any] = Field(default_factory=dict, alias="inputData")
     version_number: int | None = Field(default=None, ge=1, alias="versionNumber")
-    config_overrides: dict[str, Any] = Field(default_factory=dict, alias="configOverrides")
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class FlowStatusUpdate(BaseModel):
@@ -164,10 +240,9 @@ class ScheduleCreate(BaseModel):
     timezone: str = "UTC"
     version_number: int = Field(ge=1, alias="versionNumber")
     input_data: dict[str, Any] = Field(default_factory=dict, alias="inputData")
-    config_overrides: dict[str, Any] = Field(default_factory=dict, alias="configOverrides")
     enabled: bool = True
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class ScheduleUpdate(BaseModel):
@@ -178,10 +253,9 @@ class ScheduleUpdate(BaseModel):
     timezone: str | None = None
     version_number: int | None = Field(default=None, ge=1, alias="versionNumber")
     input_data: dict[str, Any] | None = Field(default=None, alias="inputData")
-    config_overrides: dict[str, Any] | None = Field(default=None, alias="configOverrides")
     enabled: bool | None = None
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class ScheduleResponse(BaseModel):
@@ -192,7 +266,6 @@ class ScheduleResponse(BaseModel):
     timezone: str
     version_number: int
     input_data: dict[str, Any]
-    config_overrides: dict[str, Any]
     enabled: bool
     next_run_at: datetime
     last_triggered_at: datetime | None

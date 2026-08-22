@@ -220,6 +220,7 @@ def resolve_credential(
         }
     db.add(
         FlowEvent(
+            group_id=credential.group_id,
             flow_run_id=run_id,
             node_id=node_id,
             event_type="CREDENTIAL_USED",

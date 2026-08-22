@@ -128,8 +128,10 @@ a { color: inherit; text-decoration: none; }
 .panel-placeholder { color: #8a95a5; font-size: 12px; line-height: 1.55; padding: 20px 4px; }
 .property-form { display: flex; flex-direction: column; gap: 14px; }
 .property-form label, .node-inspector > label { display: flex; flex-direction: column; gap: 6px; color: #59667a; font-size: 11px; font-weight: 600; }
-.property-form input, .property-form select { width: 100%; height: 37px; padding: 0 10px; border: 1px solid #d9dfe8; border-radius: 7px; background: white; color: #1e293b; font-size: 12px; outline: none; }
-.property-form input:focus, .property-form select:focus, .quick-run input:focus { border-color: #60a5fa; box-shadow: 0 0 0 3px #dbeafe; }
+.property-form input, .property-form select, .property-form textarea { width: 100%; padding: 0 10px; border: 1px solid #d9dfe8; border-radius: 7px; background: white; color: #1e293b; font-size: 12px; outline: none; }
+.property-form input, .property-form select { height: 37px; }
+.property-form textarea { min-height: 92px; padding-top: 9px; resize: vertical; font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.property-form input:focus, .property-form select:focus, .property-form textarea:focus, .quick-run input:focus { border-color: #60a5fa; box-shadow: 0 0 0 3px #dbeafe; }
 .property-meta { display: flex; justify-content: space-between; align-items: center; padding: 9px 10px; background: #f7f8fa; border-radius: 7px; font-size: 11px; color: #687489; }
 .property-meta code { color: #334155; }
 .property-help { margin: 2px 0; font-size: 10px; line-height: 1.5; color: #939dac; }

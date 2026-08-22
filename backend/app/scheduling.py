@@ -1,19 +1,9 @@
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-
-from app.database import SessionLocal
-from app.enums import FlowStatus, RunTriggerType
-from app.flow_config import deep_merge
-from app.models import FlowSchedule, utc_now
-from app.run_service import create_flow_run
-
-logger = logging.getLogger(__name__)
+from app.models import utc_now
 
 
 def _cron_values(field: str, minimum: int, maximum: int) -> set[int]:
@@ -78,50 +68,6 @@ def next_cron_time(expression: str, timezone: str, after: datetime | None = None
             return candidate.astimezone(UTC)
         candidate += timedelta(minutes=1)
     raise ValueError("Cron expression has no occurrence in the next two years")
-
-
-def scheduler_tick() -> int:
-    now = utc_now()
-    created = 0
-    with SessionLocal() as db:
-        schedules = db.scalars(
-            select(FlowSchedule)
-            .where(FlowSchedule.enabled.is_(True), FlowSchedule.next_run_at <= now)
-            .options(selectinload(FlowSchedule.flow), selectinload(FlowSchedule.flow_version))
-            .order_by(FlowSchedule.next_run_at)
-            .with_for_update(skip_locked=True)
-            .limit(25)
-        ).all()
-        for schedule in schedules:
-            due_at = schedule.next_run_at
-            schedule.next_run_at = next_cron_time(
-                schedule.cron_expression, schedule.timezone, due_at
-            )
-            schedule.updated_at = now
-            if schedule.flow.status != FlowStatus.ACTIVE:
-                continue
-            create_flow_run(
-                db,
-                schedule.flow,
-                schedule.flow_version,
-                schedule.input_data,
-                trigger_type=RunTriggerType.SCHEDULE,
-                trigger_id=schedule.id,
-                idempotency_key=f"schedule:{schedule.id}:{due_at.isoformat()}",
-                source_metadata={
-                    "scheduleName": schedule.name,
-                    "scheduledFor": due_at.isoformat(),
-                    "cronExpression": schedule.cron_expression,
-                    "timezone": schedule.timezone,
-                },
-                flow_config=deep_merge(
-                    schedule.flow_version.default_config, schedule.config_overrides
-                ),
-            )
-            schedule.last_triggered_at = now
-            created += 1
-        db.commit()
-    return created
 
 
 def validate_schedule(expression: str, timezone: str) -> datetime:

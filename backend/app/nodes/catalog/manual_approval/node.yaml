@@ -25,7 +25,11 @@ spec:
       prompt:
         type: string
         title: Operator prompt
+      approvalGroupRef:
+        type: string
+        title: Approval group
     required: [prompt]
     additionalProperties: false
   defaultConfig:
     prompt: Review the data and continue this workflow.
+    approvalGroupRef: ""
