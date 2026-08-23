@@ -126,6 +126,68 @@ Temporal Server <------ Python Temporal Worker
 
 The API and Temporal worker use the same backend image and Python package but run as separate processes. FastAPI never executes a long-running node inside a request. Temporal owns durable orchestration, timers, retries, callback/manual waits, cancellation, and worker crash recovery; PostgreSQL stores business data and the UI projection read by the frontend.
 
+## Permission model
+
+FlowForge uses built-in users and group-scoped authorization. A group is the v1 tenant boundary:
+flows, published versions, runs, credentials, schedules, approval groups, approval tasks, events,
+and UI projections all carry `group_id`. The Temporal namespace is shared in v1; isolation is
+enforced by the API, database records, workflow IDs, and activity inputs. Workflow IDs use
+`group_id:run_id` so operational lookup still has the tenant context.
+
+The first configured administrator is bootstrapped on an empty database. Super administrator access
+is stored on the user record with `is_super_admin`; group-level roles are stored in `group_member`.
+A user can hold multiple roles in the same group.
+
+| Principal | Scope | Purpose |
+|---|---|---|
+| `SUPER_ADMIN` | Global | Can manage every group and bypass group role checks. |
+| `GROUP_ADMIN` | One group | Manages group members, flows, credentials, schedules, approval groups, and approvals. |
+| `FLOW_DESIGNER` | One group | Creates, edits, validates, publishes, rolls back, pauses, archives, and runs flows in the group. |
+| `FLOW_EXECUTOR` | One group | Starts, reruns, cancels, and views runs for published flows in the group. |
+| `APPROVER` | One group | Views group runs and approves tasks assigned to their approval group. |
+| `VIEWER` | One group | Read-only access to flows, versions, runs, node types, schedules, credentials metadata, and approval tasks. |
+
+The backend permission helpers currently group endpoint checks into five capabilities:
+
+| Capability | Allowed roles |
+|---|---|
+| View group resources | `GROUP_ADMIN`, `FLOW_DESIGNER`, `FLOW_EXECUTOR`, `APPROVER`, `VIEWER` |
+| Design flows | `GROUP_ADMIN`, `FLOW_DESIGNER` |
+| Execute flows and runs | `GROUP_ADMIN`, `FLOW_DESIGNER`, `FLOW_EXECUTOR` |
+| Manage group settings | `GROUP_ADMIN` |
+| Approve a task | `GROUP_ADMIN`, or `APPROVER` when they belong to the task approval group |
+
+All primary resource APIs are group-scoped:
+
+```text
+/api/groups/{group_id}/flows
+/api/groups/{group_id}/runs
+/api/groups/{group_id}/node-types
+/api/groups/{group_id}/flows/{flow_id}/credentials
+/api/groups/{group_id}/flows/{flow_id}/schedules
+/api/groups/{group_id}/approval-groups
+/api/groups/{group_id}/approval-tasks
+```
+
+Credentials are scoped by `group_id + flow_id + alias`. Secrets are decrypted only inside
+Activities and are never sent to Temporal history, run events, or API responses. Flow configuration
+is not secret data; each run stores a validated snapshot so later flow edits do not change historical
+execution.
+
+Manual Approval nodes can optionally reference an approval group alias with `approvalGroupRef`.
+When execution reaches the node, an Activity creates an `ApprovalTask`; the Workflow waits on a
+Temporal Signal. The approve/reject API checks group permissions and approval-group membership
+before signalling Temporal. If no approval group is configured, any group `APPROVER` or
+`GROUP_ADMIN` can decide the task.
+
+Current v1 boundaries:
+
+- Authorization is enforced in the application layer; PostgreSQL Row Level Security is not enabled.
+- Temporal uses one namespace for all groups; per-group namespaces are a future hard-isolation option.
+- The frontend has a group selector and handles group-scoped APIs, but full member/role/approval-group
+  management screens are still a follow-up.
+- RBAC behavior should be expanded with a full allow/deny test matrix before production use.
+
 ## Flow lifecycle
 
 1. The editor saves a mutable draft.
